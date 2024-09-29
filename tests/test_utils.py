@@ -6,8 +6,6 @@ from jass.game.rule_schieber import RuleSchieber
 
 from bots.heuristic_bots import util
 
-np.random.seed(1)
-
 
 @pytest.fixture
 def hand() -> np.ndarray:
@@ -19,6 +17,7 @@ def hand() -> np.ndarray:
 
 @pytest.fixture
 def game() -> GameSim:
+    np.random.seed(1)
     rule = RuleSchieber()
     game = GameSim(rule=rule)
     game.init_from_cards(hands=deal_random_hand(), dealer=NORTH)
