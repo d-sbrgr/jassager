@@ -1,0 +1,4 @@
+jass-kit
+
+# unittests
+pytest

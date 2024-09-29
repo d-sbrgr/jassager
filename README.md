@@ -23,11 +23,12 @@ Set the constant variables ``MY_TEAM_AGENT_TYPE`` and ``OPPONENT_TEAM_AGENT_TYPE
 respective agent types you would like to use.
 
 Example:
+
 ````python
 from jass.agents.agent_random_schieber import AgentRandomSchieber
-from bots.heuristic_bot import HeuristicAgent
+from bots.heuristic_bots.heuristic_trump_random_play import HeuristicTrumpRandomPlay
 
-MY_TEAM_AGENT_TYPE = HeuristicAgent
+MY_TEAM_AGENT_TYPE = HeuristicTrumpRandomPlay
 OPPONENT_TEAM_AGENT_TYPE = AgentRandomSchieber
 ````
 
