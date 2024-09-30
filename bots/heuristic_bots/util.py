@@ -139,3 +139,19 @@ def get_trump_cards(cards: list[int], trump: int) -> list[int]:
 
 def get_points_in_trick(trump: int, trick: np.ndarray):
     return sum([card_values[trump][card] for card in trick if card > -1])
+
+
+def get_card_values(cards: list[int], trump: int) -> list[int]:
+    return list(map(lambda x: card_values[trump, x], cards))
+
+
+def get_least_valuable_cards(cards: list[int], trump: int) -> list[int]:
+    points = get_card_values(cards, trump)
+    point_min = min(points)
+    return [cards[i] for i in range(len(cards)) if points[i] == point_min]
+
+
+def get_most_valuable_cards(cards: list[int], trump: int) -> list[int]:
+    points = get_card_values(cards, trump)
+    point_max = max(points)
+    return [cards[i] for i in range(len(cards)) if points[i] == point_max]

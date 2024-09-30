@@ -141,3 +141,33 @@ def test_get_points_in_trick(game):
     play_cards(game, nr_of_cards=15)
     obs = game.get_observation()
     assert util.get_points_in_trick(obs.trump, obs.current_trick) == 16
+
+
+@pytest.mark.parametrize("cards,trump,result", (
+    ([D6, D9, DJ, CA, H10, HQ, S8], DIAMONDS, 58),
+    ([D6, D9, DJ, CA, H10, HQ, S8], CLUBS, 26),
+    ([D6, D9, DJ, CA, H10, HQ, S8], OBE_ABE, 34),
+    ([D6, D9, DJ, CA, H10, HQ, S8], UNE_UFE, 34),
+))
+def test_card_values(cards: list[int], trump: int, result: int):
+    assert sum(util.get_card_values(cards, trump)) == result
+
+
+@pytest.mark.parametrize("cards,trump,result", (
+    ([D6, D9, DJ, CA, CJ, H10, HQ, S8], DIAMONDS, [DJ]),
+    ([D6, D9, DJ, CA, H10, HQ, S8, SA], CLUBS, [CA, SA]),
+    ([D6, D9, DJ, DK, C7, HK, HQ, S8], OBE_ABE, [S8]),
+    ([D6, D9, DJ, CA, H10, HQ, S6, S8], UNE_UFE, [D6, S6]),
+))
+def test_most_valuable_card(cards: list[int], trump: int, result: int):
+    assert util.get_most_valuable_cards(cards, trump) == result
+
+
+@pytest.mark.parametrize("cards,trump,result", (
+    ([D6, D9, DJ, CA, CJ, H10, HQ, S8], DIAMONDS, [D6, S8]),
+    ([D6, D9, DJ, CA, H10, HQ, S8, SA], CLUBS, [D6, D9, S8]),
+    ([D6, D9, DJ, DK, C7, HK, HQ, S8], OBE_ABE, [D6, D9, C7]),
+    ([D6, D9, DJ, CA, H10, HQ, S6, S8], UNE_UFE, [D9, CA]),
+))
+def test_least_valuable_card(cards: list[int], trump: int, result: int):
+    assert util.get_least_valuable_cards(cards, trump) == result
