@@ -1,2 +1,3 @@
 from .heuristic_bots.heuristic_trump_random_play import HeuristicTrumpRandomPlay
 from .heuristic_bots.full_heuristic_v1 import FullHeuristicEgocentric
+from .heuristic_bots.full_heuristic_v2 import FullHeuristicTableView
