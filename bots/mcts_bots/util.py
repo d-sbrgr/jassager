@@ -16,23 +16,19 @@ from jass.game.game_util import convert_one_hot_encoded_cards_to_int_encoded_lis
 from ..heuristic_bots.full_heuristic_v2 import FullHeuristicTableView
 
 
-class MCTSGameSim(GameSim):
-
-    def __init__(self, rule: GameRule, agent: FullHeuristicTableView, team: int):
-        super().__init__(rule)
-        self._agent = agent
-        self._team: int = team
-        self.rule.get_valid_actions_from_state()
-
-    def run_simulation(self):
-        while not self.is_done():
-            self.action_play_card(self._agent.action_play_card(self.get_observation()))
-
-    def get_score(self) -> float:
-        return (self.state.points[self._team]) / 157
-
-
 class MCTSGameState(GameState):
+    def get_reward(self) -> float:
+        pass
+
+    def get_legal_actions(self) -> tuple[int, ...]:
+        pass
+
+    def perform_action(self, action) -> MCTSGameState:
+        pass
+
+    @property
+    def is_terminal(self) -> bool:
+        pass
 
     @classmethod
     def from_observation(cls, obs: GameObservation, possible_cards: np.ndarray) -> GameState:
@@ -92,17 +88,19 @@ class ISMCTSNode:
     def __init__(self, parent=None, action=None):
         self.parent = parent
         self.action = action
-        self.children = {}  # action -> Node
+        self.children: dict[int, ISMCTSNode] = {}
         self.visits = 0
-        self.value = 0.0
+        self.available = 0
+        self.reward = 0.0
 
-    def is_fully_expanded(self, game_state: MCTSGameState):
-        legal_actions =
+    def is_fully_expanded(self, state: MCTSGameState):
+        legal_actions = state.get_legal_actions()
         return all(legal_action in self.children.keys() for legal_action in legal_actions)
 
     def best_child(self, c_param=1.4):
+        # TODO: Cleanly implement this
         choices_weights = [
-            (child.value / child.visits) + c_param * math.sqrt((2 * math.log(self.visits)) / child.visits)
+            (child.reward / child.visits) + c_param * math.sqrt((2 * math.log(self.visits)) / child.visits)
             for child in self.children.values()
         ]
         return list(self.children.values())[choices_weights.index(max(choices_weights))]
@@ -110,61 +108,60 @@ class ISMCTSNode:
     def most_visited_child(self):
         return max(self.children.values(), key=lambda node: node.visits)
 
+    def get_random_determinization(self) -> MCTSGameState:
+        pass
+
+    def get_random_action(self):
+        pass
+
+    def get_available_siblings(self) -> list[ISMCTSNode]:
+        pass
+
 
 class ISMCTS:
-    def __init__(self, obs: GameObservation, iterations: int = None, time: float = None):
-        if time is None and iterations is None:
-            raise RuntimeError("ISMCTS must be terminated either after elapsed time or number of iterations")
+    def __init__(self, obs: GameObservation, rule: GameRule, iterations: int = 1000):
         self.iterations = iterations
         self.obs = obs
-        self.root = ISMCTSNode()
-        self.sim = MCTSGameSim(RuleSchieber(), FullHeuristicTableView(), 0 if obs.player_view in (NORTH, SOUTH) else 1)
-        self.possible_cards = MCTSGameState.get_possible_cards(obs)
+        self.root = ISMCTSNode.from_observation(obs, rule)
+        # self.possible_cards = MCTSGameState.get_possible_cards(obs)
+
     def search(self):
         for _ in range(self.iterations):
-            self.sim.init_from_state(MCTSGameState.from_observation(self.obs, self.possible_cards))
-            node, state = self.selection(self.root, self.sim)
+            state = self.root.get_random_determinization()
+            node, state = self.selection(self.root, state)
+            if not node.is_fully_expanded(state):
+                node, state = self.expand(node, state)
             reward = self.simulation(state)
             self.backpropagate(node, reward)
         return self.root.most_visited_child().action
 
-    def selection(self, node, sim: MCTSGameSim):
-        while not sim.is_done():
-            if node.is_fully_expanded(state):
-                node = node.best_child()
-                state = state.perform_action(node.action)
-            else:
-                return self.expand(node, state)
+    @staticmethod
+    def selection(node: ISMCTSNode, state: MCTSGameState) -> tuple[ISMCTSNode, MCTSGameState]:
+        while not state.is_terminal and node.is_fully_expanded(state):
+            node = node.best_child()
+            state = state.perfom_action(node.action)
         return node, state
 
-    def expand(self, node, state):
-        tried_actions = node.children.keys()
-        possible_actions = state.get_legal_actions()
-        for action in possible_actions:
-            if action not in tried_actions:
-                new_state = state.perform_action(action)
-                information_set = new_state.get_information_set(self.player)
-                child_node = ISMCTSNode(information_set, parent=node, action=action)
-                node.children[action] = child_node
-                return child_node, new_state
-        # Should not reach here
+    @staticmethod
+    def expand(node, state) -> tuple[ISMCTSNode, MCTSGameState]:
+        action = node.get_random_action(state)
+        child = ISMCTSNode(node, action)
+        node.children[action] = child
+        state = state.perform_action(action)
         return node, state
 
-    def simulation(self, state):
-        # Sample a hidden information state consistent with the information set
-        sampled_state = self.sample_state(state)
-        while not sampled_state.is_terminal():
-            action = random.choice(sampled_state.get_legal_actions())
-            sampled_state = sampled_state.perform_action(action)
-        return sampled_state.get_reward(self.player)
+    @staticmethod
+    def simulation(state: MCTSGameState):
+        while not state.is_terminal:
+            action = random.choice(state.get_legal_actions())
+            state = state.perform_action(action)
+        return state.get_reward()
 
-    def sample_state(self, state):
-        # Implement state sampling consistent with the information set
-        # This is game-specific and needs to be implemented accordingly
-        return state  # Placeholder
-
-    def backpropagate(self, node, reward):
+    @staticmethod
+    def backpropagate(node: ISMCTSNode, reward: float):
         while node is not None:
             node.visits += 1
-            node.value += reward
+            node.reward += reward
+            for sibling in node.get_available_siblings():
+                sibling.available += 1
             node = node.parent
