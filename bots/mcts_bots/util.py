@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import math
 import random
 
@@ -28,6 +29,8 @@ class MCTSGameState:
 
     @property
     def is_terminal(self) -> bool:
+        if self._state.nr_played_cards < 36 and self._state.current_trick is None:
+            raise ValueError(self._state)
         return self._state.nr_played_cards == 36
 
     def perform_action(self, action) -> MCTSGameState:
@@ -69,12 +72,13 @@ class ISMCTSNode:
         return child
 
     def get_available_siblings(self) -> list[ISMCTSNode]:
-        return [c for c in self.children.values() if c.action in self._state.get_legal_actions()]
+        return [c for c in self.parent.children.values() if c.action in self.parent._state.get_legal_actions() and c.action != self.action]
+
+    def set_state(self, state: GameState):
+        self._state = state
 
     @staticmethod
     def get_random_determinization(obs: GameObservation, sim: GameSim) -> MCTSGameState:
-        hands = np.zeros([4, 36], np.int32)
-        hands[obs.player_view, :] = obs.hand
         possible_cards = np.ones([4, 36], int)
         # Remove all played cards and if applicable, color types from player's possible hands
         for index, card in enumerate(obs.tricks.flatten()):
@@ -101,24 +105,28 @@ class ISMCTSNode:
 
         # Remove all cards in player_view's hand
         possible_cards[:, convert_one_hot_encoded_cards_to_int_encoded_list(obs.hand)] = 0
-        possible_cards[obs.player_view, :] = 0  # Player_view's cards are already determined
+        possible_cards[obs.player, :] = 0  # Player_view's cards are already determined
         remaining_cards = convert_one_hot_encoded_cards_to_int_encoded_list(np.bitwise_or.reduce(possible_cards))
 
         # How many cards each player must hold
         card_count = [8 - obs.nr_tricks] * 4
-        player = obs.player_view
-        for i in range(4 - obs.nr_played_cards):
+        player = obs.player
+        for i in range(4 - obs.nr_cards_in_trick):
             card_count[player] += 1
             player = next_player[player]
-        card_count[obs.player_view] = 0
+        card_count[obs.player] = 0
 
+        hands = np.zeros([4, 36], np.int32)
+        hands[obs.player, :] = obs.hand
+        counter = 0
         while True:
+            counter += 1
             random.shuffle(remaining_cards)
             player_cards = [
-                remaining_cards[:card_count[0]],
-                remaining_cards[card_count[0]:card_count[0] + card_count[1]],
-                remaining_cards[card_count[0] + card_count[1]:card_count[0] + card_count[1] + card_count[2]],
-                remaining_cards[card_count[0] + card_count[1] + card_count[2]:],
+                remaining_cards[:sum(card_count[:1])],
+                remaining_cards[sum(card_count[:1]):sum(card_count[:2])],
+                remaining_cards[sum(card_count[:2]):sum(card_count[:3])],
+                remaining_cards[sum(card_count[:3]):],
             ]
             if all(
                     [possible_cards[player, cards].all() == 1 for player, cards in enumerate(player_cards)]
@@ -126,12 +134,14 @@ class ISMCTSNode:
                 for player, cards in enumerate(player_cards):
                     hands[player, cards] = 1
                 break
+        print(f"Needed {counter} tries")
 
         return MCTSGameState(state_from_observation(obs, hands), sim, 0 if obs.player_view in (NORTH, SOUTH) else 1)
 
 
 class ISMCTS:
     def __init__(self, obs: GameObservation, rule: GameRule, iterations: int = 1000):
+        random.seed(1)
         self.iterations = iterations
         self.obs = obs
         self.sim = GameSim(rule)
@@ -141,7 +151,7 @@ class ISMCTS:
         for _ in range(self.iterations):
             state = self.root.get_random_determinization(self.obs, self.sim)
             node, state = self.selection(self.root, state)
-            if not node.is_fully_expanded(state):
+            if not node.is_fully_expanded(state) and not state.is_terminal:
                 node, state = self.expand(node, state)
             reward = self.simulation(state)
             self.backpropagate(node, reward)
@@ -156,9 +166,10 @@ class ISMCTS:
 
     @staticmethod
     def expand(node, state) -> tuple[ISMCTSNode, MCTSGameState]:
-        node = node.create_random_child()
-        state = state.perform_action(node.action)
-        return node, state
+        child_node = node.create_random_child()
+        child_state = state.perform_action(child_node.action)
+        child_node.set_state(child_state)
+        return child_node, child_state
 
     @staticmethod
     def simulation(state: MCTSGameState):
