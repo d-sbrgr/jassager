@@ -4,9 +4,9 @@ from jass.agents.agent_random_schieber import AgentRandomSchieber
 from bots import HeuristicTrumpRandomPlay, FullHeuristicEgocentric, FullHeuristicTableView, HeuristicTrumpMCTSPlay
 
 MY_TEAM_AGENT_TYPE = HeuristicTrumpMCTSPlay
-OPPONENT_TEAM_AGENT_TYPE = HeuristicTrumpRandomPlay
+OPPONENT_TEAM_AGENT_TYPE = FullHeuristicTableView
 
-arena = Arena(nr_games_to_play=100)
+arena = Arena(nr_games_to_play=1)
 arena.set_players(
     MY_TEAM_AGENT_TYPE(),
     OPPONENT_TEAM_AGENT_TYPE(),

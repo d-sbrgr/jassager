@@ -4,6 +4,7 @@ import copy
 import math
 import random
 
+import numpy as np
 from jass.game.const import *
 from jass.game.game_observation import GameObservation
 from jass.game.game_rule import GameRule
@@ -18,7 +19,6 @@ class MCTSGameState:
         self._simulation = sim
         self._state = state
         self._team = team
-        self._simulation.init_from_state(state)
 
     def get_reward(self) -> float:
         return float(self._state.points[self._team] / 157)
@@ -29,11 +29,10 @@ class MCTSGameState:
 
     @property
     def is_terminal(self) -> bool:
-        if self._state.nr_played_cards < 36 and self._state.current_trick is None:
-            raise ValueError(self._state)
         return self._state.nr_played_cards == 36
 
     def perform_action(self, action) -> MCTSGameState:
+        self._simulation.init_from_state(self._state)
         self._simulation.action(action)
         return MCTSGameState(self._simulation.state, self._simulation, self._team)
 
@@ -49,7 +48,6 @@ class ISMCTSNode:
         self._state = None
 
     def is_fully_expanded(self, state: MCTSGameState) -> bool:
-        self._state = state
         return all(legal_action in self.children.keys() for legal_action in state.get_legal_actions())
 
     def best_child(self, c_param=1.4) -> ISMCTSNode:
@@ -74,7 +72,7 @@ class ISMCTSNode:
     def get_available_siblings(self) -> list[ISMCTSNode]:
         return [c for c in self.parent.children.values() if c.action in self.parent._state.get_legal_actions() and c.action != self.action]
 
-    def set_state(self, state: GameState):
+    def set_state(self, state: MCTSGameState):
         self._state = state
 
     @staticmethod
@@ -118,23 +116,36 @@ class ISMCTSNode:
 
         hands = np.zeros([4, 36], np.int32)
         hands[obs.player, :] = obs.hand
-        counter = 0
-        while True:
-            counter += 1
-            random.shuffle(remaining_cards)
-            player_cards = [
-                remaining_cards[:sum(card_count[:1])],
-                remaining_cards[sum(card_count[:1]):sum(card_count[:2])],
-                remaining_cards[sum(card_count[:2]):sum(card_count[:3])],
-                remaining_cards[sum(card_count[:3]):],
-            ]
-            if all(
-                    [possible_cards[player, cards].all() == 1 for player, cards in enumerate(player_cards)]
-            ):
-                for player, cards in enumerate(player_cards):
-                    hands[player, cards] = 1
-                break
-        print(f"Needed {counter} tries")
+
+        c = 0
+        remaining_cards_copy = list(remaining_cards)
+        card_count_copy = list(card_count)
+        while len(remaining_cards) > 0:
+            c += 1
+            if c > 100:
+                raise ValueError()
+            card_count = list(card_count_copy)
+            remaining_cards = list(remaining_cards_copy)
+            for i in range(1, 4):
+                cards, remaining_cards = remaining_cards, []
+                for card in cards:
+                    possible_players = possible_cards[:, card]
+                    if possible_players.sum() == i:
+                        players, = np.where(possible_players == 1)
+                        players = players.tolist()
+                        random.shuffle(players)
+                        for player in players:
+                            if card_count[player] > 0:
+                                hands[player, card] = 1
+                                card_count[player] -= 1
+                                break
+                        else:
+                            remaining_cards.append(card)
+                    else:
+                        remaining_cards.append(card)
+
+        if obs.nr_played_cards + hands.sum() != 36:
+            raise ValueError()
 
         return MCTSGameState(state_from_observation(obs, hands), sim, 0 if obs.player_view in (NORTH, SOUTH) else 1)
 
@@ -150,6 +161,7 @@ class ISMCTS:
     def search(self):
         for _ in range(self.iterations):
             state = self.root.get_random_determinization(self.obs, self.sim)
+            self.root.set_state(state)
             node, state = self.selection(self.root, state)
             if not node.is_fully_expanded(state) and not state.is_terminal:
                 node, state = self.expand(node, state)
@@ -162,6 +174,7 @@ class ISMCTS:
         while not state.is_terminal and node.is_fully_expanded(state):
             node = node.best_child()
             state = state.perform_action(node.action)
+            node.set_state(state)
         return node, state
 
     @staticmethod
