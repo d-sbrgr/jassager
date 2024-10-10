@@ -6,7 +6,7 @@ from bots import HeuristicTrumpRandomPlay, FullHeuristicEgocentric, FullHeuristi
 MY_TEAM_AGENT_TYPE = HeuristicTrumpMCTSPlay
 OPPONENT_TEAM_AGENT_TYPE = FullHeuristicTableView
 
-arena = Arena(nr_games_to_play=1)
+arena = Arena(nr_games_to_play=100)
 arena.set_players(
     MY_TEAM_AGENT_TYPE(),
     OPPONENT_TEAM_AGENT_TYPE(),
