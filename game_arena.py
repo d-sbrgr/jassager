@@ -6,13 +6,15 @@ from bots import HeuristicTrumpRandomPlay, FullHeuristicEgocentric, FullHeuristi
 MY_TEAM_AGENT_TYPE = HeuristicTrumpMCTSPlay
 OPPONENT_TEAM_AGENT_TYPE = FullHeuristicTableView
 
-arena = Arena(nr_games_to_play=100)
+arena = Arena(nr_games_to_play=1)
 arena.set_players(
     MY_TEAM_AGENT_TYPE(),
     OPPONENT_TEAM_AGENT_TYPE(),
     MY_TEAM_AGENT_TYPE(),
     OPPONENT_TEAM_AGENT_TYPE()
 )
+
+print("DET: AVG |    MAX   |    MIN   ||--|| ALG: AVG |    MAX   |    MIN")
 
 arena.play_all_games()
 

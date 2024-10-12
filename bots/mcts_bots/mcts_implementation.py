@@ -1,66 +1,14 @@
 from __future__ import annotations
 
-import copy
 import math
 import random
+import time
 
-import numpy as np
-from jass.game.const import *
 from jass.game.game_observation import GameObservation
 from jass.game.game_rule import GameRule
-from jass.game.game_sim import GameSim
-from jass.game.game_state import GameState
-from jass.game.game_state_util import state_from_observation, calculate_points_from_tricks
-from jass.game.game_util import convert_one_hot_encoded_cards_to_int_encoded_list
+
+from .mcts_game_state import MCTSGameState, mcts_state_from_observation
 from .util import get_random_determinization
-
-
-class MCTSGameState:
-    """
-    Represents a game state within the Monte Carlo Tree Search (MCTS) framework.
-
-    This class holds the current state of the game, provides methods to get legal actions,
-    apply actions to generate new states, and calculate rewards.
-    """
-    def __init__(self, state: GameState, sim: GameSim, team: int) -> None:
-        """
-        Initialize the MCTS game state.
-
-        :param state: The current game state.
-        :param sim: The game simulator used to apply actions and progress the game.
-        :param team: The index of the team (0 or 1) for which the reward is calculated.
-        """
-        self._simulation = sim  # Game simulator instance
-        self._state = state     # Current game state
-        self._team = team       # Team index (0 or 1)
-
-
-    def get_reward(self) -> float:
-        return float(self._state.points[self._team] / 157)
-
-    # Get valid cards in one-hot encoded format and convert to integer list
-    def get_legal_actions(self) -> list[int]:
-        return convert_one_hot_encoded_cards_to_int_encoded_list(
-            self._simulation.rule.get_valid_cards_from_state(self._state))
-
-    # Game ends when all 36 cards have been played
-    @property
-    def is_terminal(self) -> bool:
-        return self._state.nr_played_cards == 36
-
-    def perform_action(self, action) -> MCTSGameState:
-        """
-        Apply an action to the current state and return the resulting new state.
-
-        :param action: The action to perform (card index to play).
-        :return: A new MCTSGameState reflecting the state after the action.
-        """
-        # Initialize the simulation from the current state
-        self._simulation.init_from_state(self._state)
-        # Perform the action in the simulation
-        self._simulation.action(action)
-        # Create and return a new MCTSGameState with the updated state
-        return MCTSGameState(self._simulation.state, self._simulation, self._team)
 
 
 class ISMCTSNode:
@@ -92,7 +40,7 @@ class ISMCTSNode:
         :param state: The current game state.
         :return: True if all legal actions have corresponding child nodes, False otherwise.
         """
-        return all(legal_action in self.children.keys() for legal_action in state.get_legal_actions())
+        return all(legal_action in self.children for legal_action in state.get_legal_actions())
 
     def best_child(self, c_param=1.4) -> ISMCTSNode:
         """
@@ -101,10 +49,9 @@ class ISMCTSNode:
         :param c_param: Exploration parameter balancing exploitation and exploration.
         :return: The child node with the highest UCB1 score.
         """
-        children = list(self.children.values())
         return max(
-            children,
-            key=lambda child: child.get_ucb1_score()
+            self.children.values(),
+            key=lambda child: child.get_ucb1_score(c_param)
         )
 
     def get_ucb1_score(self, c_param=1.4) -> float:
@@ -134,11 +81,8 @@ class ISMCTSNode:
         """
         # Get legal actions from the current state
         action = random.choice(self._state.get_legal_actions())
-        # Create a new child node with the chosen action
-        child = ISMCTSNode(self, action)
-        # Add the new child to the children dictionary
-        self.children[action] = child
-        return child
+        self.children[action] = ISMCTSNode(self, action)
+        return self.children[action]
 
     def get_available_siblings(self) -> list[ISMCTSNode]:
         """
@@ -157,7 +101,7 @@ class ISMCTSNode:
         self._state = state
 
     @staticmethod
-    def get_random_determinization(obs: GameObservation, sim: GameSim) -> MCTSGameState:
+    def get_random_determinization(obs: GameObservation) -> MCTSGameState:
         """
         Generate a random determinization of the game state consistent with the observation.
 
@@ -165,11 +109,10 @@ class ISMCTSNode:
         by sampling possible game states.
 
         :param obs: The game observation containing known information.
-        :param sim: The game simulator.
         :return: A new MCTSGameState based on the determinized hands.
         """
         hands = get_random_determinization(obs)
-        return MCTSGameState(state_from_observation(obs, hands), sim, 0 if obs.player_view in (NORTH, SOUTH) else 1)
+        return mcts_state_from_observation(obs, hands)
 
 
 class ISMCTS:
@@ -190,7 +133,6 @@ class ISMCTS:
         random.seed(1)                  # Set seed for reproducibility
         self.iterations = iterations    # Number of search iterations
         self.obs = obs                  # Current game observation
-        self.sim = GameSim(rule)        # Game simulator initialized with the game rules
         self.root = ISMCTSNode()        # Root node of the search tree
 
     def search(self):
@@ -199,10 +141,14 @@ class ISMCTS:
 
         :return: The action (card index) corresponding to the most promising move.
         """
+        det = []
+        alg = []
         for _ in range(self.iterations):
+            start = time.perf_counter()
             # Step 1: Determinization - sample a possible complete game state
-            state = self.root.get_random_determinization(self.obs, self.sim)
+            state = self.root.get_random_determinization(self.obs)
             self.root.set_state(state)
+            determinization = time.perf_counter()
 
             # Step 2: Selection - traverse the tree to find a node to expand
             node, state = self.selection(self.root, state)
@@ -216,6 +162,11 @@ class ISMCTS:
 
             # Step 5: Backpropagation - update the nodes with the simulation result
             self.backpropagate(node, reward)
+            stop = time.perf_counter()
+            det.append(determinization - start)
+            alg.append(stop - determinization)
+
+        print(f"{sum(det) / len(det):.6f} | {max(det):.6f} | {min(det):.6f} ||--|| {sum(alg) / len(alg):.6f} | {max(alg):.6f} | {min(alg):.6f}")
 
         # After all iterations, select the action with the most visits at the root
         return self.root.most_visited_child().action
@@ -257,9 +208,7 @@ class ISMCTS:
         :param state: The starting game state for the simulation.
         :return: The reward obtained at the end of the simulation.
         """
-        while not state.is_terminal:
-            action = random.choice(state.get_legal_actions())
-            state = state.perform_action(action)
+        state.run_internal_simulation()
         return state.get_reward()
 
     @staticmethod
