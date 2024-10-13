@@ -10,9 +10,13 @@ from jass.game.game_state import GameState
 from jass.game.game_util import convert_one_hot_encoded_cards_to_int_encoded_list, full_to_trump
 from jass.game.rule_schieber import RuleSchieber
 
+from .random_determinization import RandomDeterminization
+
+
+RULE: GameRule = RuleSchieber()
+
 
 class MCTSGameState(GameState):
-    _rule: GameRule = RuleSchieber()
     """
     Represents a game state within the Monte Carlo Tree Search (MCTS) framework.
 
@@ -26,25 +30,20 @@ class MCTSGameState(GameState):
         """
         super().__init__()
         self.team = -1  # Team index (0 or 1)
+        self.is_terminal = False
+        self.legal_actions: np.typing.ArrayLike = None
+
+    def update_legal_actions(self):
+        self.legal_actions = np.array(convert_one_hot_encoded_cards_to_int_encoded_list(
+            RULE.get_valid_actions_from_state(self)
+        ))
 
     def get_reward(self) -> float:
         return float(self.points[self.team] / 157)
 
-    # Get valid cards in one-hot encoded format and convert to integer list
-    def get_legal_actions(self) -> list[int]:
-        return convert_one_hot_encoded_cards_to_int_encoded_list(
-            self._rule.get_valid_actions_from_state(self)
-        )
-
-    # Game ends when all 36 cards have been played
-    @property
-    def is_terminal(self) -> bool:
-        return self.nr_played_cards == 36
-
     def run_internal_simulation(self):
         while not self.is_terminal:
-            action = random.choice(self.get_legal_actions())
-            self._action(action)
+            self._action(random.choice(self.legal_actions))
 
     def perform_action(self, action) -> MCTSGameState:
         """
@@ -59,30 +58,28 @@ class MCTSGameState(GameState):
 
     def _action(self, action: int):
         if action < TRUMP_FULL_OFFSET:
-            return self._action_play_card(action)
-        trump_action = full_to_trump(action)
-        return self._action_trump(trump_action)
+            self._action_play_card(action)
+        else:
+            self._action_trump(full_to_trump(action))
+        self.update_legal_actions()
 
     def _action_trump(self, action: int):
         if self.forehand == -1:
             # this is the action of the forehand player
-            if action == PUSH:
+            if action in (PUSH, PUSH_ALT):
                 self.forehand = 0
                 self.player = partner_player[self.player]
-            else:
-                self.forehand = 1
-                self.trump = action
-                self.declared_trump = self.player
-                self.trick_first_player[0] = self.player
+                return
+            self.forehand = 1
                 # player remains the same
         elif self.forehand == 0:
             # action of the partner of the forehand player
-            self.trump = action
-            self.declared_trump = self.player
             self.player = next_player[self.dealer]
-            self.trick_first_player[0] = self.player
         else:
             raise ValueError('Unexpected value {} for forehand in action_trump'.format(self.forehand))
+        self.trump = action
+        self.declared_trump = self.player
+        self.trick_first_player[0] = self.player
 
     def _action_play_card(self, card: int):
         # remove card from player
@@ -91,6 +88,7 @@ class MCTSGameState(GameState):
         # place in trick
         self.current_trick[self.nr_cards_in_trick] = card
         self.nr_played_cards += 1
+        self.is_terminal = self.nr_played_cards == 36
 
         if self.nr_cards_in_trick < 3:
             if self.nr_cards_in_trick == 0:
@@ -101,17 +99,18 @@ class MCTSGameState(GameState):
             self.nr_cards_in_trick += 1
             self.player = next_player[self.player]
         else:
-            points = self._rule.calc_points(self.current_trick, self.nr_played_cards == 36, self.trump)
-            self.trick_points[self.nr_tricks] = points
-            winner = self._rule.calc_winner(self.current_trick,
-                                            self.trick_first_player[self.nr_tricks],
-                                            self.trump)
+            self.trick_points[self.nr_tricks] = RULE.calc_points(
+                self.current_trick, self.is_terminal, self.trump
+            )
+            winner = RULE.calc_winner(
+                self.current_trick, self.trick_first_player[self.nr_tricks], self.trump
+            )
             self.trick_winner[self.nr_tricks] = winner
 
             if winner == NORTH or winner == SOUTH:
-                self.points[0] += points
+                self.points[0] += self.trick_points[self.nr_tricks]
             else:
-                self.points[1] += points
+                self.points[1] += self.trick_points[self.nr_tricks]
             self.nr_tricks += 1
             self.nr_cards_in_trick = 0
 
@@ -126,38 +125,51 @@ class MCTSGameState(GameState):
                 self.player = -1
                 self.current_trick = None
 
+    @classmethod
+    def random_state_from_obs(cls, obs: GameObservation) -> MCTSGameState:
+        """
+        Generate a random determinization of the game state consistent with the observation.
 
-def mcts_state_from_observation(obs: GameObservation, hands: np.ndarray) -> MCTSGameState:
-    state = MCTSGameState()
+        In games with imperfect information, determinization is used to handle uncertainty
+        by sampling possible game states.
 
-    state.team = 0 if obs.player_view in (NORTH, SOUTH) else 1
-    state.dealer = obs.dealer
-    state.player = obs.player
+        :param obs: The game observation containing known information.
+        :return: A new MCTSGameState based on the determinized hands.
+        """
+        hands = RandomDeterminization(obs).hands
+        state = cls()
 
-    state.player_view = obs.player
+        state.team = 0 if obs.player_view in (NORTH, SOUTH) else 1
+        state.dealer = obs.dealer
+        state.player = obs.player
 
-    state.trump = obs.trump
-    state.forehand = obs.forehand
-    state.declared_trump = obs.declared_trump
+        state.player_view = obs.player
 
-    state.hands[:, :] = hands[:, :]
+        state.trump = obs.trump
+        state.forehand = obs.forehand
+        state.declared_trump = obs.declared_trump
 
-    state.tricks[:, :] = obs.tricks[:, :]
-    state.trick_winner[:] = obs.trick_winner[:]
-    state.trick_points[:] = obs.trick_points[:]
-    state.trick_first_player[:] = obs.trick_first_player[:]
-    state.nr_tricks = obs.nr_tricks
-    state.nr_cards_in_trick = obs.nr_cards_in_trick
+        state.hands[:, :] = hands[:, :]
 
-    # current trick is a view to the trick
-    if obs.nr_played_cards < 36:
-        state.current_trick = state.tricks[state.nr_tricks]
-    else:
-        state.current_trick = None
+        state.tricks[:, :] = obs.tricks[:, :]
+        state.trick_winner[:] = obs.trick_winner[:]
+        state.trick_points[:] = obs.trick_points[:]
+        state.trick_first_player[:] = obs.trick_first_player[:]
+        state.nr_tricks = obs.nr_tricks
+        state.nr_cards_in_trick = obs.nr_cards_in_trick
 
-    state.nr_tricks = obs.nr_tricks
-    state.nr_cards_in_trick = obs.nr_cards_in_trick
-    state.nr_played_cards = obs.nr_played_cards
-    state.points[:] = obs.points[:]
+        # current trick is a view to the trick
+        if obs.nr_played_cards < 36:
+            state.current_trick = state.tricks[state.nr_tricks]
+            state.is_terminal = False
+        else:
+            state.current_trick = None
+            state.is_terminal = True
 
-    return state
+        state.nr_tricks = obs.nr_tricks
+        state.nr_cards_in_trick = obs.nr_cards_in_trick
+        state.nr_played_cards = obs.nr_played_cards
+        state.points[:] = obs.points[:]
+        state.update_legal_actions()
+
+        return state
