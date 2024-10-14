@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import numpy as np
+
 import math
-import random
 import time
 from collections.abc import Iterable
 
@@ -26,7 +27,7 @@ class ISMCTS:
         :param obs: The current game observation available to the player.
         :param max_time: The time to elapse after which a result shall be returned.
         """
-        random.seed(1)                  # Set seed for reproducibility
+        np.random.seed(1)
         self.start = time.time()
         self.max_time = max_time
         self.obs = obs                  # Current game observation
@@ -41,7 +42,8 @@ class ISMCTS:
         """
         det = []
         alg = []
-        while time.time() - self.start < self.max_time:
+        # while time.time() - self.start < self.max_time:
+        for _ in range(1000):
             t_strt = time.perf_counter()
 
             self._current_node = self.root  # Set root node as current node
@@ -182,7 +184,7 @@ class ISMCTSNode:
         :return: The newly created child node.
         """
         # Get legal actions from the current state
-        child = ISMCTSNode(self, random.choice(self.state.legal_actions))
+        child = ISMCTSNode(self, np.random.choice(self.state.legal_actions))
         child.state = self.state.perform_action(child.action)
         self.children[child.action] = child
         return child

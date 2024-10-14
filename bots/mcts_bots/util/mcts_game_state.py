@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import random
 
 from jass.game.const import *
 from jass.game.game_observation import GameObservation
@@ -43,7 +42,7 @@ class MCTSGameState(GameState):
 
     def run_internal_simulation(self):
         while not self.is_terminal:
-            self._action(random.choice(self.legal_actions))
+            self._action(np.random.choice(self.legal_actions))
 
     def perform_action(self, action) -> MCTSGameState:
         """
