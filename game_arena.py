@@ -3,14 +3,14 @@ import time
 
 from jass.arena.arena import Arena
 
-from bots import FullHeuristicEgocentric, FullMCTS, RandomAgent
+from bots import FullHeuristicEgocentric, FullMCTS, RandomAgent, CheatingMinimax
 
 np.random.seed(0x3770)
 
 MY_TEAM_AGENT_TYPE = FullMCTS
-OPPONENT_TEAM_AGENT_TYPE = RandomAgent
+OPPONENT_TEAM_AGENT_TYPE = CheatingMinimax
 
-arena = Arena(nr_games_to_play=1)
+arena = Arena(nr_games_to_play=5)
 arena.set_players(
     MY_TEAM_AGENT_TYPE(),
     OPPONENT_TEAM_AGENT_TYPE(),
