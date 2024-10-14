@@ -9,7 +9,7 @@ from jass.game.game_observation import GameObservation
 
 from bots.mcts_bots.util.mcts_game_state import MCTSGameState
 
-DEBUG = False
+DEBUG = True
 
 
 class ISMCTS:
@@ -19,20 +19,18 @@ class ISMCTS:
     This class orchestrates the MCTS process, handling the tree search iterations,
     and ultimately selecting the best action to take from the current game observation.
     """
-    def __init__(self, obs: GameObservation, max_time: float = 2., c_param = None):
+    def __init__(self, obs: GameObservation, max_time: float = 2.0):
         """
         Initialize the ISMCTS algorithm.
 
         :param obs: The current game observation available to the player.
-        :param iterations: The number of iterations to perform in the search.
-        :param time_: The time to elapse after which a result shall be returned.
-                      If ``None`, `iterations` will be stop factor
+        :param max_time: The time to elapse after which a result shall be returned.
         """
         random.seed(1)                  # Set seed for reproducibility
         self.start = time.time()
         self.max_time = max_time
         self.obs = obs                  # Current game observation
-        self.root = ISMCTSNode(c_param=c_param)        # Root node of the search tree
+        self.root = ISMCTSNode()        # Root node of the search tree
         self._current_node = None
 
     def search(self):
@@ -117,14 +115,13 @@ class ISMCTSNode:
     Each node corresponds to a game state resulting from an action and contains statistics
     used to guide the tree search, such as visit counts and accumulated rewards.
     """
-    def __init__(self, parent: ISMCTSNode | None = None, action: int | None = None, c_param = None):
+    def __init__(self, parent: ISMCTSNode | None = None, action: int | None = None):
         """
         Initialize an ISMCTS node.
 
         :param parent: The parent node (None if this is the root node).
         :param action: The action taken to reach this node from the parent.
         """
-        self.c_param = c_param
         self.parent = parent        # Parent node in the tree
         self.action = action        # Action that led to this node
         self.children: dict[int, ISMCTSNode] = {}       # Child nodes mapped by action
@@ -153,7 +150,7 @@ class ISMCTSNode:
 
         :return: The UCB1 score as a float.
         """
-        return self.reward / self.visits + self.c_param * math.sqrt(math.log(self.available) / self.visits)
+        return self.reward / self.visits + 1.3 * math.sqrt(math.log(self.available) / self.visits)
 
     def get_most_visited_child(self):
         """
@@ -185,7 +182,7 @@ class ISMCTSNode:
         :return: The newly created child node.
         """
         # Get legal actions from the current state
-        child = ISMCTSNode(self, random.choice(self.state.legal_actions), self.c_param)
+        child = ISMCTSNode(self, random.choice(self.state.legal_actions))
         child.state = self.state.perform_action(child.action)
         self.children[child.action] = child
         return child
