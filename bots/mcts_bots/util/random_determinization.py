@@ -69,26 +69,25 @@ class RandomDeterminization:
 
     def _allocate_cards_to_players(self):
         card_amount_copy = list(self._player_card_amount)
-        for i in (1, 2, 3):
-            if not self._add_cards_with_n_possible_players(i):
-                break
+        if not self._map_cards_to_players():
+            self._player_card_amount = card_amount_copy
+            self._player_cards = [[], [], [], []]
+            self._allocate_cards_to_players()
         else:
             self._hands[self._obs.player, :] = self._obs.hand
             for player, cards in enumerate(self._player_cards):
                 self._hands[player, cards] = 1
             return
-        self._player_card_amount = card_amount_copy
-        self._player_cards = [[], [], [], []]
-        self._allocate_cards_to_players()
 
-    def _add_cards_with_n_possible_players(self, n_players: int) -> bool:
-        for (card, players) in self._remaining_cards[n_players]:
-            np.random.shuffle(players)
-            for player in players:
-                if self._player_card_amount[player] > 0:
-                    self._player_cards[player].append(card)
-                    self._player_card_amount[player] -= 1
-                    break
-            else:
-                return False
+    def _map_cards_to_players(self) -> bool:
+        for remaining_cards in self._remaining_cards.values():
+            for (card, players) in remaining_cards:
+                np.random.shuffle(players)
+                for player in players:
+                    if self._player_card_amount[player] > 0:
+                        self._player_cards[player].append(card)
+                        self._player_card_amount[player] -= 1
+                        break
+                else:
+                    return False
         return True

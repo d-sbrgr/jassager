@@ -42,8 +42,7 @@ class ISMCTS:
         """
         det = []
         alg = []
-        # while time.time() - self.start < self.max_time:
-        for _ in range(1000):
+        while time.time() - self.start < self.max_time:
             t_strt = time.perf_counter()
 
             self._current_node = self.root  # Set root node as current node
