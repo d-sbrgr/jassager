@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
+import random
+import itertools
 
 import math
 import time
@@ -136,6 +138,7 @@ class ISMCTSNode:
         self.available = 0          # Number of times this node was available for selection
         self.reward = 0.0           # Total reward accumulated through this node
         self.state: MCTSGameState | None = None          # Associated game state
+        self.unexplored_actions = set()
 
     @property
     def is_terminal(self) -> bool:
@@ -187,11 +190,25 @@ class ISMCTSNode:
         Expand the node by creating a new child node with a random unexplored action.
 
         :return: The newly created child node.
+
+        Raises:
+            ValueError: If there are no unexplored actions available to create a new child node.
+
         """
-        # TODO: check that the created child is not a duplicate of an existing child
-        # TODO: to fix issue -> random choice of exclusive set of legal_actions and self.children.keys()
-        # Get legal actions from the current state
-        child = ISMCTSNode(self, np.random.choice(list(set(self.state.legal_actions) - set(self.children.keys()))))
+        # ---- 191.3s
+        # Recompute the list of unexplored actions based on the current state's legal actions
+        # and the actions that have already been explored (i.e., present in self.children).
+        if hasattr(self, 'unexplored_actions'):
+            self.unexplored_actions = [action for action in self.state.legal_actions if action not in self.children]
+
+        # If there are no unexplored actions left, raise an exception indicating the node is fully expanded.
+        if not self.unexplored_actions:
+            raise ValueError("No unexplored actions available to create a new child node.")
+
+        # Randomly select an action from the unexplored actions.
+        # random.randrange() is efficient for selecting a random index without creating additional data structures.
+        random_action = self.unexplored_actions.pop(random.randrange(len(self.unexplored_actions)))
+        child = ISMCTSNode(self, random_action)
         child.state = self.state.perform_action(child.action)
         self.children[child.action] = child
         return child
