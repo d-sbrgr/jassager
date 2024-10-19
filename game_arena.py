@@ -5,17 +5,17 @@ from jass.arena.arena import Arena
 
 from bots import FullHeuristicEgocentric, FullMCTS, RandomAgent, CheatingMinimax
 
-np.random.seed(0x3770)
+np.random.seed(0x2525)
 
 MY_TEAM_AGENT_TYPE = FullMCTS
-OPPONENT_TEAM_AGENT_TYPE = CheatingMinimax
+OPPONENT_TEAM_AGENT_TYPE = FullMCTS
 
-arena = Arena(nr_games_to_play=5)
+arena = Arena(nr_games_to_play=2)
 arena.set_players(
-    MY_TEAM_AGENT_TYPE(),
-    OPPONENT_TEAM_AGENT_TYPE(),
-    MY_TEAM_AGENT_TYPE(),
-    OPPONENT_TEAM_AGENT_TYPE()
+    MY_TEAM_AGENT_TYPE(iterations=100),
+    OPPONENT_TEAM_AGENT_TYPE(iterations=1000),
+    MY_TEAM_AGENT_TYPE(iterations=100),
+    OPPONENT_TEAM_AGENT_TYPE(iterations=1000)
 )
 
 print("DET: AVG |    MAX   |    MIN   ||--|| ALG: AVG |    MAX   |    MIN    ||--|| CDS: ")

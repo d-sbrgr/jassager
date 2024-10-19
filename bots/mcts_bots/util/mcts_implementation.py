@@ -20,17 +20,18 @@ class ISMCTS:
     This class orchestrates the MCTS process, handling the tree search iterations,
     and ultimately selecting the best action to take from the current game observation.
     """
-    def __init__(self, obs: GameObservation, max_time: float = 2.0):
+    def __init__(self, obs: GameObservation, iterations=None):
         """
         Initialize the ISMCTS algorithm.
 
         :param obs: The current game observation available to the player.
-        :param max_time: The time to elapse after which a result shall be returned.
+        :param iterations: Number of iterations the bot should run.
+                           If not provided, the number of iterations are calculated
         """
         np.random.seed(1)
         self.start = time.time()
-        self.max_time = max_time
         self.obs = obs                  # Current game observation
+        self.iterations = iterations if iterations is not None else self._get_number_of_iterations()
         self.root = ISMCTSNode()        # Root node of the search tree
         self._current_node = None
 
@@ -42,7 +43,8 @@ class ISMCTS:
         """
         det = []
         alg = []
-        while time.time() - self.start < self.max_time:
+        start = time.time()
+        for _ in range(self.iterations):
             t_strt = time.perf_counter()
 
             self._current_node = self.root  # Set root node as current node
@@ -58,9 +60,10 @@ class ISMCTS:
             t_stop = time.perf_counter()
             det.append(t_det - t_strt)
             alg.append(t_stop - t_det)
+        end = time.time()
 
         if DEBUG:
-            self._benchmark_print(det, alg)
+            self._benchmark_print(det, alg, end - start)
 
         # After all iterations, select the action with the most visits at the root
         return self.root.get_most_visited_child().action
@@ -99,14 +102,17 @@ class ISMCTS:
                 sibling.available += 1
             self._current_node = self._current_node.parent
 
-    def _benchmark_print(self, det, alg):
+    def _benchmark_print(self, det, alg, elapsed_time):
         print(
             f"{sum(det) / len(det):.6f} | {max(det):.6f} | {min(det):.6f}"
             f" ||--|| "
             f"{sum(alg) / len(alg):.6f} | {max(alg):.6f} | {min(alg):.6f} "
             f" ||--|| "
-            f"{self.obs.nr_played_cards}"
+            f"{self.obs.nr_played_cards} -> {elapsed_time:.3f}s"
         )
+
+    def _get_number_of_iterations(self) -> int:
+        return int(max(9000 / 36 * (36 - self.obs.nr_played_cards), 1000))
 
 
 class ISMCTSNode:
@@ -182,8 +188,10 @@ class ISMCTSNode:
 
         :return: The newly created child node.
         """
+        # TODO: check that the created child is not a duplicate of an existing child
+        # TODO: to fix issue -> random choice of exclusive set of legal_actions and self.children.keys()
         # Get legal actions from the current state
-        child = ISMCTSNode(self, np.random.choice(self.state.legal_actions))
+        child = ISMCTSNode(self, np.random.choice(list(set(self.state.legal_actions) - set(self.children.keys()))))
         child.state = self.state.perform_action(child.action)
         self.children[child.action] = child
         return child
