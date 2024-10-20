@@ -5,16 +5,16 @@ from jass.arena.arena import Arena
 
 from bots import FullHeuristicEgocentric, FullMCTS, RandomAgent, CheatingMinimax
 
-np.random.seed(0x2525)
+np.random.seed(0x1337)
 
 MY_TEAM_AGENT_TYPE = FullMCTS
 OPPONENT_TEAM_AGENT_TYPE = FullMCTS
 
 arena = Arena(nr_games_to_play=2)
 arena.set_players(
-    MY_TEAM_AGENT_TYPE(iterations=100),
+    MY_TEAM_AGENT_TYPE(),
     OPPONENT_TEAM_AGENT_TYPE(iterations=1000),
-    MY_TEAM_AGENT_TYPE(iterations=100),
+    MY_TEAM_AGENT_TYPE(),
     OPPONENT_TEAM_AGENT_TYPE(iterations=1000)
 )
 
