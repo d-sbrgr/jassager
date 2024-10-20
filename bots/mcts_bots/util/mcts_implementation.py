@@ -13,6 +13,7 @@ from jass.game.game_observation import GameObservation
 from bots.mcts_bots.util.mcts_game_state import MCTSGameState
 
 DEBUG = True
+MAX_SEARCH_DURATION = 9.0
 
 
 class ISMCTS:
@@ -45,7 +46,6 @@ class ISMCTS:
         """
         det = []
         alg = []
-        start = time.time()
         for _ in range(self.iterations):
             t_strt = time.perf_counter()
 
@@ -62,10 +62,12 @@ class ISMCTS:
             t_stop = time.perf_counter()
             det.append(t_det - t_strt)
             alg.append(t_stop - t_det)
-        end = time.time()
+
+            if time.time() - self.start > MAX_SEARCH_DURATION:
+                break
 
         if DEBUG:
-            self._benchmark_print(det, alg, end - start)
+            self._benchmark_print(det, alg, time.time() - self.start)
 
         # After all iterations, select the action with the most visits at the root
         return self.root.get_most_visited_child().action
@@ -114,7 +116,7 @@ class ISMCTS:
         )
 
     def _get_number_of_iterations(self) -> int:
-        return int(max(9000 / 36 * (36 - self.obs.nr_played_cards), 1000))
+        return int(2000 + (5000 / 36 * (36 - self.obs.nr_played_cards)))
 
 
 class ISMCTSNode:
@@ -138,7 +140,6 @@ class ISMCTSNode:
         self.available = 0          # Number of times this node was available for selection
         self.reward = 0.0           # Total reward accumulated through this node
         self.state: MCTSGameState | None = None          # Associated game state
-        self.unexplored_actions = set()
 
     @property
     def is_terminal(self) -> bool:
@@ -195,19 +196,9 @@ class ISMCTSNode:
             ValueError: If there are no unexplored actions available to create a new child node.
 
         """
-        # ---- 191.3s
-        # Recompute the list of unexplored actions based on the current state's legal actions
-        # and the actions that have already been explored (i.e., present in self.children).
-        if hasattr(self, 'unexplored_actions'):
-            self.unexplored_actions = [action for action in self.state.legal_actions if action not in self.children]
-
-        # If there are no unexplored actions left, raise an exception indicating the node is fully expanded.
-        if not self.unexplored_actions:
-            raise ValueError("No unexplored actions available to create a new child node.")
-
-        # Randomly select an action from the unexplored actions.
-        # random.randrange() is efficient for selecting a random index without creating additional data structures.
-        random_action = self.unexplored_actions.pop(random.randrange(len(self.unexplored_actions)))
+        random_action = np.random.choice(
+            [action for action in self.state.legal_actions if action not in self.children]
+        )
         child = ISMCTSNode(self, random_action)
         child.state = self.state.perform_action(child.action)
         self.children[child.action] = child
