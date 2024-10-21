@@ -12,7 +12,7 @@ from jass.game.game_observation import GameObservation
 
 from bots.mcts_bots.util.mcts_game_state import MCTSGameState
 
-DEBUG = True
+DEBUG = False
 MAX_SEARCH_DURATION = 9.0
 
 
@@ -23,7 +23,7 @@ class ISMCTS:
     This class orchestrates the MCTS process, handling the tree search iterations,
     and ultimately selecting the best action to take from the current game observation.
     """
-    def __init__(self, obs: GameObservation, iterations=None):
+    def __init__(self, obs: GameObservation, iterations=None, c_param=1.0):
         """
         Initialize the ISMCTS algorithm.
 
@@ -35,7 +35,7 @@ class ISMCTS:
         self.start = time.time()
         self.obs = obs                  # Current game observation
         self.iterations = iterations if iterations is not None else self._get_number_of_iterations()
-        self.root = ISMCTSNode()        # Root node of the search tree
+        self.root = ISMCTSNode(c_param=c_param)        # Root node of the search tree
         self._current_node = None
 
     def search(self):
@@ -126,7 +126,7 @@ class ISMCTSNode:
     Each node corresponds to a game state resulting from an action and contains statistics
     used to guide the tree search, such as visit counts and accumulated rewards.
     """
-    def __init__(self, parent: ISMCTSNode | None = None, action: int | None = None):
+    def __init__(self, parent: ISMCTSNode | None = None, action: int | None = None, c_param: float = 1.3):
         """
         Initialize an ISMCTS node.
 
@@ -140,6 +140,7 @@ class ISMCTSNode:
         self.available = 0          # Number of times this node was available for selection
         self.reward = 0.0           # Total reward accumulated through this node
         self.state: MCTSGameState | None = None          # Associated game state
+        self.c_param = c_param
 
     @property
     def is_terminal(self) -> bool:
@@ -161,7 +162,7 @@ class ISMCTSNode:
 
         :return: The UCB1 score as a float.
         """
-        return self.reward / self.visits + 1.3 * math.sqrt(math.log(self.available) / self.visits)
+        return self.reward / self.visits + self.c_param * math.sqrt(math.log(self.available) / self.visits)
 
     def get_most_visited_child(self):
         """
@@ -199,7 +200,7 @@ class ISMCTSNode:
         random_action = np.random.choice(
             [action for action in self.state.legal_actions if action not in self.children]
         )
-        child = ISMCTSNode(self, random_action)
+        child = ISMCTSNode(self, random_action, c_param=self.c_param)
         child.state = self.state.perform_action(child.action)
         self.children[child.action] = child
         return child
