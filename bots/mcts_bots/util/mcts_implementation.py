@@ -23,7 +23,7 @@ class ISMCTS:
     This class orchestrates the MCTS process, handling the tree search iterations,
     and ultimately selecting the best action to take from the current game observation.
     """
-    def __init__(self, obs: GameObservation, iterations=None, c_param=1.0):
+    def __init__(self, obs: GameObservation):
         """
         Initialize the ISMCTS algorithm.
 
@@ -34,8 +34,8 @@ class ISMCTS:
         np.random.seed(1)
         self.start = time.time()
         self.obs = obs                  # Current game observation
-        self.iterations = iterations if iterations is not None else self._get_number_of_iterations()
-        self.root = ISMCTSNode(c_param=c_param)        # Root node of the search tree
+        self.iterations = self._get_number_of_iterations()
+        self.root = ISMCTSNode()        # Root node of the search tree
         self._current_node = None
 
     def search(self):
@@ -116,7 +116,7 @@ class ISMCTS:
         )
 
     def _get_number_of_iterations(self) -> int:
-        return int(2000 + (5000 / 36 * (36 - self.obs.nr_played_cards)))
+        return int(2000 + (9000 / 36 * (36 - self.obs.nr_played_cards)))
 
 
 class ISMCTSNode:
