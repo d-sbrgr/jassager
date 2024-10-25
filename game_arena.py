@@ -1,10 +1,15 @@
+import numpy as np
+import time
+
 from jass.arena.arena import Arena
-from jass.agents.agent_random_schieber import AgentRandomSchieber
 
-from bots import HeuristicTrumpRandomPlay, FullHeuristicEgocentric, FullHeuristicTableView
+from bots import FullHeuristicEgocentric, FullMCTS, RandomAgent, CheatingMinimax
 
-MY_TEAM_AGENT_TYPE = FullHeuristicTableView
-OPPONENT_TEAM_AGENT_TYPE = HeuristicTrumpRandomPlay
+np.random.seed(0xb48a)
+
+MY_TEAM_AGENT_TYPE = FullMCTS
+OPPONENT_TEAM_AGENT_TYPE = RandomAgent
+
 
 arena = Arena(nr_games_to_play=100)
 arena.set_players(
@@ -14,9 +19,16 @@ arena.set_players(
     OPPONENT_TEAM_AGENT_TYPE()
 )
 
+# print("DET: AVG |    MAX   |    MIN   ||--|| ALG: AVG |    MAX   |    MIN    ||--|| CDS: ")
+
+start = time.time()
 arena.play_all_games()
+stop = time.time()
 
 print(
+    f"==========================\n"
     f"My team points: {arena.points_team_0.sum()}\n"
-    f"Opponent team points: {arena.points_team_1.sum()}"
+    f"Opponent team points: {arena.points_team_1.sum()}\n"
+    f"Elapsed time: {stop - start:.4f} s\n"
+    f"==========================\n"
 )
