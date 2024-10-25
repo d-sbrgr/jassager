@@ -28,5 +28,4 @@ steps:
         '--allow-unauthenticated'
       ]
 
-# Optional: Specify timeout and logs bucket if needed
 timeout: '900s'
