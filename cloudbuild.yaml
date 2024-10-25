@@ -21,7 +21,7 @@ steps:
       [
         'run',
         'deploy',
-        'flask-app',  # Cloud Run service name
+        'github',  # Cloud Run service name
         '--image', 'gcr.io/$PROJECT_ID/jassager:$SHORT_SHA',
         '--region', 'europe-west6',  # Specify the region
         '--platform', 'managed',
