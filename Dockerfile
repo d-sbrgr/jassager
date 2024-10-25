@@ -13,5 +13,7 @@ EXPOSE 8080
 # Set environment variable to specify the port for Cloud Run
 ENV PORT 8080
 
-# Run the application using gunicorn (adjust "main:app" as needed)
-CMD exec gunicorn --bind :8080 flask_app:app
+ENV FLASK_APP=flask_app.py
+ENV FLASK_ENV=development
+
+CMD ["flask", "run", "--host=0.0.0.0", "--port=8080"]
