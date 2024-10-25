@@ -17,7 +17,7 @@ def create_app():
     logging.basicConfig(level=logging.DEBUG)
 
     # create and configure the app
-    app = PlayerServiceApp('player_service')
+    app = PlayerServiceApp('flask_app')
 
     # add some players
     app.add_player('jassager', FullMCTS())
@@ -27,5 +27,5 @@ def create_app():
 
 if __name__ == '__main__':
    app = create_app()
-   app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+   app.run(host="0.0.0.0", port=8080)
 

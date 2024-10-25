@@ -1,2 +1,0 @@
-runtime: python312
-entrypoint: gunicorn -b :8080 flask_app:app
