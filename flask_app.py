@@ -1,4 +1,3 @@
-import os
 import logging
 
 from jass.service.player_service_app import PlayerServiceApp

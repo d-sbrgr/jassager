@@ -116,7 +116,7 @@ class ISMCTS:
         )
 
     def _get_number_of_iterations(self) -> int:
-        return int(2000 + (9000 / 36 * (36 - self.obs.nr_played_cards)))
+        return int(4000 + (100000 / 36 * (36 - self.obs.nr_played_cards)))
 
 
 class ISMCTSNode:
