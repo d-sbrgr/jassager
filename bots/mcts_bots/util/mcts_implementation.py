@@ -13,7 +13,7 @@ from jass.game.game_observation import GameObservation
 from bots.mcts_bots.util.mcts_game_state import MCTSGameState
 
 DEBUG = False
-MAX_SEARCH_DURATION = 9.0
+MAX_SEARCH_DURATION = 9.5
 
 
 class ISMCTS:

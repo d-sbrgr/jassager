@@ -11,11 +11,11 @@ class FullMCTS(Agent):
         self._rule = RuleSchieber()
 
     def action_trump(self, obs: GameObservation) -> int:
-        return full_to_trump(ISMCTS(obs).search())
+        return int(full_to_trump(ISMCTS(obs).search()))
 
     def action_play_card(self, obs: GameObservation) -> int:
         valid_moves = convert_one_hot_encoded_cards_to_int_encoded_list(
             self._rule.get_valid_cards_from_obs(obs))
         if len(valid_moves) == 1:
-            return valid_moves[0]
-        return ISMCTS(obs).search()
+            return int(valid_moves[0])
+        return int(ISMCTS(obs).search())

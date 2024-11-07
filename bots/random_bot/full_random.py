@@ -21,7 +21,7 @@ class RandomAgent(Agent):
         """
         valid_actions = self._rule.get_valid_actions_from_obs(obs)
         # we use the global random number generator here
-        return full_to_trump(np.random.choice(np.flatnonzero(valid_actions)))
+        return int(full_to_trump(np.random.choice(np.flatnonzero(valid_actions))))
 
     def action_play_card(self, obs: GameObservation) -> int:
         """
@@ -35,4 +35,4 @@ class RandomAgent(Agent):
         """
         valid_cards = self._rule.get_valid_cards_from_obs(obs)
         # we use the global random number generator here
-        return np.random.choice(np.flatnonzero(valid_cards))
+        return int(np.random.choice(np.flatnonzero(valid_cards)))
