@@ -5,3 +5,4 @@ from .heuristic_bots.full_heuristic_v1 import FullHeuristicEgocentric
 from .heuristic_bots.full_heuristic_v2 import FullHeuristicTableView
 from .mcts_bots.heuristic_trump_mcts_play import HeuristicTrumpMCTSPlay
 from .mcts_bots.full_mcts import FullMCTS
+from .mcts_bots.full_mcts_nn import FullMCTSNN
