@@ -3,3 +3,4 @@ flask==3.0.3
 pytest
 torch==2.5.1
 pandas==2.2.3
+scikit-learn==1.5.2
