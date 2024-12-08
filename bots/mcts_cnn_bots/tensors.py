@@ -4,14 +4,12 @@ import torch
 
 
 def df_to_tensors(df: pd.DataFrame) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    num_samples = 1000 #len(df)
+    num_samples = len(df)
     state_tensors = torch.zeros((num_samples, 19, 4, 9))
     policy_targets = torch.zeros((num_samples, 36), dtype=torch.long)
     value_targets = torch.zeros((num_samples, 1), dtype=torch.float32)
 
     for index, (_, row) in enumerate(df.iterrows()):
-        if index >= num_samples:
-            break
         # Encode the game state as a tensor
         state_tensor = game_state_to_tensor(
             trump=row['trump'],
