@@ -1,3 +1,5 @@
+# encode_game_obs.py
+
 import numpy as np
 
 from jass.game.game_observation import GameObservation
