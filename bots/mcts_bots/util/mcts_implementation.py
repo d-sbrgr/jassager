@@ -12,7 +12,6 @@ from jass.game.game_observation import GameObservation
 
 from bots.mcts_bots.util.mcts_game_state import PureMCTSGameState, MCTSGameState
 
-DEBUG = False
 MAX_SEARCH_DURATION = 9.5
 
 
@@ -23,7 +22,7 @@ class ISMCTS:
     This class orchestrates the MCTS process, handling the tree search iterations,
     and ultimately selecting the best action to take from the current game observation.
     """
-    def __init__(self, obs: GameObservation, state: Type[MCTSGameState], model: nn.Module = None, conversion: Callable = None):
+    def __init__(self, obs: GameObservation, state: Type[MCTSGameState], c_param: float = 1.3, model: nn.Module = None, conversion: Callable = None):
         """
         Initialize the ISMCTS algorithm.
 
@@ -35,7 +34,7 @@ class ISMCTS:
         self.start = time.time()
         self.obs = obs                  # Current game observation
         self.iterations = self._get_number_of_iterations()
-        self.root = ISMCTSNode()        # Root node of the search tree
+        self.root = ISMCTSNode(c_param=c_param)        # Root node of the search tree
         self._model = model
         self._state_factory = state
         self._conversion = conversion
@@ -50,28 +49,15 @@ class ISMCTS:
         det = []
         alg = []
         for _ in range(self.iterations):
-            t_strt = time.perf_counter()
-
             self._current_node = self.root  # Set root node as current node
             self.root.state = self._state_factory.random_state_from_obs(self.obs, self._model)  # Step 1: Determinization - sample a possible complete game state
-
-            t_det = time.perf_counter()
-
             self.selection()  # Step 2: Selection - traverse the tree to find a node to expand
             self.expand()  # Step 3: Expansion - add a new child node if the node is not fully expanded
             self.simulation()  # Step 4: Simulation - simulate a random playout from the node
             self.backpropagate()  # Step 5: Backpropagation - update the nodes with the simulation result
 
-            t_stop = time.perf_counter()
-            det.append(t_det - t_strt)
-            alg.append(t_stop - t_det)
-
             if time.time() - self.start > MAX_SEARCH_DURATION:
-                print(f"{self._state_factory.__name__}: {_} iterations")
                 break
-
-        if DEBUG:
-            self._benchmark_print(det, alg, time.time() - self.start)
 
         # After all iterations, select the action with the most visits at the root
         return self.root.get_most_visited_child().action
@@ -109,15 +95,6 @@ class ISMCTS:
             for sibling in self._current_node.get_available_siblings():
                 sibling.available += 1
             self._current_node = self._current_node.parent
-
-    def _benchmark_print(self, det, alg, elapsed_time):
-        print(
-            f"{sum(det) / len(det):.6f} | {max(det):.6f} | {min(det):.6f}"
-            f" ||--|| "
-            f"{sum(alg) / len(alg):.6f} | {max(alg):.6f} | {min(alg):.6f} "
-            f" ||--|| "
-            f"{self.obs.nr_played_cards} -> {elapsed_time:.3f}s"
-        )
 
     def _get_number_of_iterations(self) -> int:
         return int(4000 + (100000 / 36 * (36 - self.obs.nr_played_cards)))

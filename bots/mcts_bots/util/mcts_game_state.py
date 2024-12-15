@@ -201,7 +201,10 @@ class DNNMCTSGameState(MCTSGameState):
         return self._reward if self.team == team[self.player] else 1 - self._reward
 
     def run_internal_simulation(self, state_to_tensor_conversion: Callable = None):
-        self._reward = self.model(state_to_tensor_conversion(self))
+        if self.is_terminal:
+            self._reward = self.points[team[self.player]] / 157
+        else:
+            self._reward = self.model(state_to_tensor_conversion(self))
 
     @classmethod
     def random_state_from_obs(cls, obs: GameObservation, model: nn.Module = None) -> DNNMCTSGameState:
