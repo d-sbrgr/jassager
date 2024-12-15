@@ -11,7 +11,7 @@ MY_TEAM_AGENT_TYPE = MCTSCNNRollout
 OPPONENT_TEAM_AGENT_TYPE = RandomAgent
 
 
-for c_param in (0.3, 0.5, 0.7, 1.0, 1.2):
+for c_param in (0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0, 1.2):
     arena = Arena(nr_games_to_play=10)
     arena.set_players(
         MY_TEAM_AGENT_TYPE(c_param),
@@ -29,5 +29,6 @@ for c_param in (0.3, 0.5, 0.7, 1.0, 1.2):
         f"My team points: {arena.points_team_0.sum()}\n"
         f"Opponent team points: {arena.points_team_1.sum()}\n"
         f"Elapsed time: {stop - start:.4f} s\n"
+        f"C: {c_param}\n"
         f"==========================\n"
     )
