@@ -4,19 +4,23 @@ from jass.game.rule_schieber import RuleSchieber
 from jass.agents.agent import Agent
 
 from bots.mcts_bots.util.mcts_implementation import ISMCTS
-from bots.mcts_bots.util.mcts_game_state import PureMCTSGameState
+from bots.mcts_bots.util.mcts_game_state import DNNMCTSGameState
+from models import load_model, JassCNN
+from .tensors import game_state_to_cnn_tensor
+
+MODEL = load_model(JassCNN, "jass_cnn", 1)
 
 
-class FullMCTS(Agent):
+class MCTSCNNRollout(Agent):
     def __init__(self):
         self._rule = RuleSchieber()
 
     def action_trump(self, obs: GameObservation) -> int:
-        return int(full_to_trump(ISMCTS(obs, PureMCTSGameState).search()))
+        return int(full_to_trump(ISMCTS(obs, DNNMCTSGameState, MODEL, game_state_to_cnn_tensor).search()))
 
     def action_play_card(self, obs: GameObservation) -> int:
         valid_moves = convert_one_hot_encoded_cards_to_int_encoded_list(
             self._rule.get_valid_cards_from_obs(obs))
         if len(valid_moves) == 1:
             return int(valid_moves[0])
-        return int(ISMCTS(obs, PureMCTSGameState).search())
+        return int(ISMCTS(obs, DNNMCTSGameState, MODEL, game_state_to_cnn_tensor).search())

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
-import random
-import itertools
+import torch.nn as nn
+from typing import Callable, Type
 
 import math
 import time
@@ -10,7 +10,7 @@ from collections.abc import Iterable
 
 from jass.game.game_observation import GameObservation
 
-from bots.mcts_bots.util.mcts_game_state import MCTSGameState
+from bots.mcts_bots.util.mcts_game_state import PureMCTSGameState, MCTSGameState
 
 DEBUG = False
 MAX_SEARCH_DURATION = 9.5
@@ -23,7 +23,7 @@ class ISMCTS:
     This class orchestrates the MCTS process, handling the tree search iterations,
     and ultimately selecting the best action to take from the current game observation.
     """
-    def __init__(self, obs: GameObservation):
+    def __init__(self, obs: GameObservation, state: Type[MCTSGameState], model: nn.Module = None, conversion: Callable = None):
         """
         Initialize the ISMCTS algorithm.
 
@@ -36,7 +36,10 @@ class ISMCTS:
         self.obs = obs                  # Current game observation
         self.iterations = self._get_number_of_iterations()
         self.root = ISMCTSNode()        # Root node of the search tree
-        self._current_node = None
+        self._model = model
+        self._state_factory = state
+        self._conversion = conversion
+        self._current_node: ISMCTSNode = None
 
     def search(self):
         """
@@ -50,7 +53,7 @@ class ISMCTS:
             t_strt = time.perf_counter()
 
             self._current_node = self.root  # Set root node as current node
-            self.root.state = MCTSGameState.random_state_from_obs(self.obs)  # Step 1: Determinization - sample a possible complete game state
+            self.root.state = self._state_factory.random_state_from_obs(self.obs, self._model)  # Step 1: Determinization - sample a possible complete game state
 
             t_det = time.perf_counter()
 
@@ -64,6 +67,7 @@ class ISMCTS:
             alg.append(t_stop - t_det)
 
             if time.time() - self.start > MAX_SEARCH_DURATION:
+                print(f"{self._state_factory.__name__}: {_} iterations")
                 break
 
         if DEBUG:
@@ -91,7 +95,7 @@ class ISMCTS:
         """
         Simulate a random playout from the current state to a terminal state.
         """
-        self._current_node.state.run_internal_simulation()
+        self._current_node.state.run_internal_simulation(self._conversion)
 
     def backpropagate(self):
         """
@@ -139,7 +143,7 @@ class ISMCTSNode:
         self.visits = 0             # Number of times this node was visited
         self.available = 0          # Number of times this node was available for selection
         self.reward = 0.0           # Total reward accumulated through this node
-        self.state: MCTSGameState | None = None          # Associated game state
+        self.state: MCTSGameState = None          # Associated game state
         self.c_param = c_param
 
     @property

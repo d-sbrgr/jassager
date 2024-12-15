@@ -3,11 +3,11 @@ import time
 
 from jass.arena.arena import Arena
 
-from bots import FullHeuristicEgocentric, FullMCTS, RandomAgent, CheatingMinimax, FullMCTSNN
+from bots import *
 
 np.random.seed(0xb48a)
 
-MY_TEAM_AGENT_TYPE = FullMCTSNN
+MY_TEAM_AGENT_TYPE = MCTSCNNRollout
 OPPONENT_TEAM_AGENT_TYPE = FullMCTS
 
 
