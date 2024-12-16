@@ -1,7 +1,4 @@
-# encode_game_obs.py
-
 import numpy as np
-
 from jass.game.game_observation import GameObservation
 
 def encode_game_observation(obs: GameObservation) -> np.ndarray:
@@ -14,36 +11,119 @@ def encode_game_observation(obs: GameObservation) -> np.ndarray:
     Returns:
     - np.ndarray: Encoded state vector.
     """
-    # Adjusted vector size (additional slots for 2 more trumps)
-    vector_size = 481  # 479 + 2 for UNE_UFE and OBE_ABE
+    # Adjusted vector size to match GameState encoding (629)
+    vector_size = (4 * 36) + (4 * 36) + 6 + 4 + 2 + (9 * 36) + 4 + 1  # Total = 629
     encoded_state = np.zeros(vector_size, dtype=np.float32)
 
-    # 1. Hand cards (36 cards, one-hot encoding)
-    encoded_state[:36] = obs.hand
+    offset = 0
+    offset = encode_hand(encoded_state, obs, offset)
+    offset = encode_empty_hands(encoded_state, obs, offset)  # Placeholder for other players' hands
+    offset = encode_current_trick(encoded_state, obs, offset)
+    offset = encode_trump(encoded_state, obs, offset)
+    offset = encode_player_position(encoded_state, obs, offset)
+    offset = encode_scores(encoded_state, obs, offset)
+    offset = encode_trick_history(encoded_state, obs, offset)
+    offset = encode_trick_counts(encoded_state, obs, offset)
+    offset = encode_additional_features(encoded_state, obs, offset)
 
-    # 2. Current trick (3 cards max, one-hot encoding)
-    for i, card in enumerate(obs.current_trick):
-        if card != -1:
-            encoded_state[36 + i * 36 + card] = 1
-
-    # 3. Trump information (6 trumps: 4 suits + UNE_UFE + OBE_ABE)
-    trump_offset = 36 + 108
-    if obs.trump != -1:
-        encoded_state[trump_offset + obs.trump] = 1
-
-    # 4. Player position (4 players, one-hot encoding)
-    player_offset = trump_offset + 6
-    encoded_state[player_offset + obs.player] = 1
-
-    # 5. Scores (2 values)
-    score_offset = player_offset + 4
-    encoded_state[score_offset:score_offset + 2] = obs.points / 157.0  # Normalize scores
-
-    # 6. Trick history (9 tricks max, one-hot encoding for each card)
-    trick_offset = score_offset + 2
-    for i in range(obs.nr_tricks):
-        for j, card in enumerate(obs.tricks[i]):
-            if card != -1:
-                encoded_state[trick_offset + i * 36 + card] = 1
+    # Validate final offset
+    assert offset == vector_size, f"Encoded vector size mismatch: expected {vector_size}, got {offset}"
 
     return encoded_state
+
+
+def encode_hand(encoded_state, obs, offset):
+    """
+    Encode the hand cards for the observing player.
+    """
+    encoded_state[offset:offset + 36] = obs.hand
+    offset += 36
+    return offset
+
+
+def encode_empty_hands(encoded_state, obs, offset):
+    """
+    Placeholder for the other players' hands.
+    """
+    # Fill with zeros since the agent doesn't have access to other hands
+    encoded_state[offset:offset + (3 * 36)] = 0
+    offset += (3 * 36)
+    return offset
+
+
+def encode_current_trick(encoded_state, obs, offset):
+    """
+    Encode the current trick (36 cards per position in the trick).
+    """
+    for i, card in enumerate(obs.current_trick):
+        if card != -1:
+            encoded_state[offset + card] = 1  # Mark the card played in this position
+        offset += 36  # Move to the next position in the trick
+    return offset
+
+
+def encode_trump(encoded_state, obs, offset):
+    """
+    Encode the trump suit (6 possible values: clubs, spades, hearts, diamonds, UNE_UFE, OBE_ABE).
+    """
+    if obs.trump != -1:
+        encoded_state[offset + obs.trump] = 1  # Mark the selected trump
+    offset += 6
+    return offset
+
+
+def encode_player_position(encoded_state, obs, offset):
+    """
+    Encode the current player position (4 positions: 0, 1, 2, 3).
+    """
+    encoded_state[offset + obs.player] = 1
+    offset += 4
+    return offset
+
+
+def encode_scores(encoded_state, obs, offset):
+    """
+    Encode the current scores for both teams.
+    """
+    # Normalize scores by the maximum possible score in a game (157)
+    encoded_state[offset:offset + 2] = obs.points / 157.0
+    offset += 2
+    return offset
+
+
+def encode_trick_history(encoded_state, obs, offset):
+    """
+    Encode the trick history (9 tricks, 36 cards per trick).
+    """
+    for trick in obs.tricks:
+        for card in trick:
+            if card != -1:
+                encoded_state[offset + card] = 1  # Mark the card played in this trick
+        offset += 36  # Move to the next trick
+    return offset
+
+
+def encode_trick_counts(encoded_state, obs, offset):
+    """
+    Encode the number of tricks won by each player.
+    """
+    # Count the number of tricks won by each player dynamically
+    nr_tricks_per_player = [0, 0, 0, 0]
+    for winner in obs.trick_winner:
+        if winner != -1:  # Only consider completed tricks
+            nr_tricks_per_player[winner] += 1
+
+    # Normalize trick counts by the total number of tricks in a game (9)
+    encoded_state[offset:offset + 4] = np.array(nr_tricks_per_player) / 9.0
+    offset += 4
+    return offset
+
+
+def encode_additional_features(encoded_state, obs, offset):
+    """
+    Encode additional features such as forehand indicator.
+    """
+    # Example: Forehand indicator (1 if the current player is forehand, else 0)
+    encoded_state[offset] = 1 if obs.forehand == obs.player else 0
+    offset += 1
+    return offset
