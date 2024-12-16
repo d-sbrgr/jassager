@@ -7,8 +7,9 @@ logging.basicConfig(level=logging.DEBUG)
 app = PlayerServiceApp('flask_app')
 app.add_player('jassager', FullMCTS())
 app.add_player('random', RandomAgent())
-app.add_player('jassager_cnn_c_0_1', MCTSCNNRollout())
-app.add_player('jassager_cnn_c_1_0', MCTSCNNRollout())
+app.add_player('jassager_cnn_01', MCTSCNNRollout(c_param=0.1))
+app.add_player('jassager_cnn_10', MCTSCNNRollout(c_param=1.0))
+app.add_player('jassager_cnn_13', MCTSCNNRollout())
 
 
 if __name__ == '__main__':

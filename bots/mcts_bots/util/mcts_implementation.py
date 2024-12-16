@@ -33,7 +33,6 @@ class ISMCTS:
         np.random.seed(1)
         self.start = time.time()
         self.obs = obs                  # Current game observation
-        self.iterations = self._get_number_of_iterations()
         self.root = ISMCTSNode(c_param=c_param)        # Root node of the search tree
         self._model = model
         self._state_factory = state
@@ -46,23 +45,20 @@ class ISMCTS:
 
         :return: The action (card index) corresponding to the most promising move.
         """
-        det = []
-        alg = []
-        for _ in range(self.iterations):
+        while True:
             self._current_node = self.root  # Set root node as current node
-            self.root.state = self._state_factory.random_state_from_obs(self.obs, self._model)  # Step 1: Determinization - sample a possible complete game state
-            self.selection()  # Step 2: Selection - traverse the tree to find a node to expand
+            self.root.state = self._state_factory.random_state_from_obs(self.obs)  # Step 1: Determinization - sample a possible complete game state
+            self.select()  # Step 2: Selection - traverse the tree to find a node to expand
             self.expand()  # Step 3: Expansion - add a new child node if the node is not fully expanded
-            self.simulation()  # Step 4: Simulation - simulate a random playout from the node
+            self.simulate()  # Step 4: Simulation - simulate a random playout from the node
             self.backpropagate()  # Step 5: Backpropagation - update the nodes with the simulation result
-
             if time.time() - self.start > MAX_SEARCH_DURATION:
                 break
 
         # After all iterations, select the action with the most visits at the root
         return self.root.get_most_visited_child().action
 
-    def selection(self):
+    def select(self):
         """
         Traverse the tree, selecting child nodes based on UCB1 until a leaf node is reached.
         """
@@ -77,11 +73,11 @@ class ISMCTS:
             return
         self._current_node = self._current_node.get_random_new_child()
 
-    def simulation(self):
+    def simulate(self):
         """
         Simulate a random playout from the current state to a terminal state.
         """
-        self._current_node.state.run_internal_simulation(self._conversion)
+        self._current_node.state.run_internal_simulation(self._model, self._conversion)
 
     def backpropagate(self):
         """
@@ -95,9 +91,6 @@ class ISMCTS:
             for sibling in self._current_node.get_available_siblings():
                 sibling.available += 1
             self._current_node = self._current_node.parent
-
-    def _get_number_of_iterations(self) -> int:
-        return int(4000 + (100000 / 36 * (36 - self.obs.nr_played_cards)))
 
 
 class ISMCTSNode:

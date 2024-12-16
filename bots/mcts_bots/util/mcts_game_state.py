@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from typing import Callable
-
+import torch
 import torch.nn as nn
 from jass.game.const import *
 from jass.game.game_observation import GameObservation
@@ -35,15 +35,61 @@ class MCTSGameState(GameState):
         self.is_terminal = False
         self.legal_actions: np.typing.ArrayLike = None
 
-    @classmethod
-    def random_state_from_obs(cls, obs: GameObservation, model: nn.Module = None) -> MCTSGameState:
-        raise NotImplementedError()
-
     def get_reward(self) -> float:
         raise NotImplementedError()
 
-    def run_internal_simulation(self, state_to_tensor_conversion: Callable = None):
+    def run_internal_simulation(self, model: nn.Module = None, state_to_tensor_conversion: Callable = None):
         raise NotImplementedError()
+
+    @classmethod
+    def random_state_from_obs(cls, obs: GameObservation) -> MCTSGameState:
+        """
+        Generate a random determinization of the game state consistent with the observation.
+
+        In games with imperfect information, determinization is used to handle uncertainty
+        by sampling possible game states.
+
+        :param obs: The game observation containing known information.
+        :param model: The model to do predictions on.
+        :return: A new MCTSGameState based on the determinized hands.
+        """
+        hands = RandomDeterminization(obs).hands
+        state = cls()
+
+        state.team = team[obs.player_view]
+        state.dealer = obs.dealer
+        state.player = obs.player
+
+        state.player_view = obs.player
+
+        state.trump = obs.trump
+        state.forehand = obs.forehand
+        state.declared_trump = obs.declared_trump
+
+        state.hands[:, :] = hands[:, :]
+
+        state.tricks[:, :] = obs.tricks[:, :]
+        state.trick_winner[:] = obs.trick_winner[:]
+        state.trick_points[:] = obs.trick_points[:]
+        state.trick_first_player[:] = obs.trick_first_player[:]
+        state.nr_tricks = obs.nr_tricks
+        state.nr_cards_in_trick = obs.nr_cards_in_trick
+
+        # current trick is a view to the trick
+        if obs.nr_played_cards < 36:
+            state.current_trick = state.tricks[state.nr_tricks]
+            state.is_terminal = False
+        else:
+            state.current_trick = None
+            state.is_terminal = True
+
+        state.nr_tricks = obs.nr_tricks
+        state.nr_cards_in_trick = obs.nr_cards_in_trick
+        state.nr_played_cards = obs.nr_played_cards
+        state.points[:] = obs.points[:]
+        state.update_legal_actions()
+
+        return state
 
     def update_legal_actions(self):
         self.legal_actions = np.array(convert_one_hot_encoded_cards_to_int_encoded_list(
@@ -135,76 +181,26 @@ class PureMCTSGameState(MCTSGameState):
     def get_reward(self) -> float:
         return float(self.points[self.team] / 157)
 
-    def run_internal_simulation(self, state_to_tensor_conversion: Callable = None):
+    def run_internal_simulation(self, model: nn.Module = None, state_to_tensor_conversion: Callable = None):
         while not self.is_terminal:
             self._action(np.random.choice(self.legal_actions))
-
-    @classmethod
-    def random_state_from_obs(cls, obs: GameObservation, model: nn.Module = None) -> PureMCTSGameState:
-        """
-        Generate a random determinization of the game state consistent with the observation.
-
-        In games with imperfect information, determinization is used to handle uncertainty
-        by sampling possible game states.
-
-        :param obs: The game observation containing known information.
-        :param model: Unfilled in this class
-        :return: A new MCTSGameState based on the determinized hands.
-        """
-        hands = RandomDeterminization(obs).hands
-        state = cls()
-
-        state.team = team[obs.player_view]
-        state.dealer = obs.dealer
-        state.player = obs.player
-
-        state.player_view = obs.player
-
-        state.trump = obs.trump
-        state.forehand = obs.forehand
-        state.declared_trump = obs.declared_trump
-
-        state.hands[:, :] = hands[:, :]
-
-        state.tricks[:, :] = obs.tricks[:, :]
-        state.trick_winner[:] = obs.trick_winner[:]
-        state.trick_points[:] = obs.trick_points[:]
-        state.trick_first_player[:] = obs.trick_first_player[:]
-        state.nr_tricks = obs.nr_tricks
-        state.nr_cards_in_trick = obs.nr_cards_in_trick
-
-        # current trick is a view to the trick
-        if obs.nr_played_cards < 36:
-            state.current_trick = state.tricks[state.nr_tricks]
-            state.is_terminal = False
-        else:
-            state.current_trick = None
-            state.is_terminal = True
-
-        state.nr_tricks = obs.nr_tricks
-        state.nr_cards_in_trick = obs.nr_cards_in_trick
-        state.nr_played_cards = obs.nr_played_cards
-        state.points[:] = obs.points[:]
-        state.update_legal_actions()
-
-        return state
 
 
 class DNNMCTSGameState(MCTSGameState):
 
     def __init__(self) -> None:
         super().__init__()
-        self.model: nn.Module = None
         self._reward = 0
 
     def get_reward(self) -> float:
         return self._reward if self.team == team[self.player] else 1 - self._reward
 
-    def run_internal_simulation(self, state_to_tensor_conversion: Callable = None):
+    def run_internal_simulation(self, model: nn.Module = None, state_to_tensor_conversion: Callable = None):
         if self.is_terminal:
             self._reward = self.points[team[self.player]] / 157
         else:
-            self._reward = self.model(state_to_tensor_conversion(self))
+            with torch.no_grad():
+                self._reward = model(state_to_tensor_conversion(self))
 
     @classmethod
     def random_state_from_obs(cls, obs: GameObservation, model: nn.Module = None) -> DNNMCTSGameState:
@@ -220,7 +216,6 @@ class DNNMCTSGameState(MCTSGameState):
         """
         hands = RandomDeterminization(obs).hands
         state = cls()
-        state.model = model
 
         state.team = team[obs.player_view]
         state.dealer = obs.dealer
