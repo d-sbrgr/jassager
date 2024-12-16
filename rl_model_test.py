@@ -8,11 +8,12 @@ from bots.rl_bots.util.utils import load_model
 from bots.rl_bots.util.jassnet import JassNet
 from bots.random_bot.full_random import RandomAgent
 from bots.heuristic_bots.full_heuristic_v2 import FullHeuristicTableView
+from bots.mcts_bots.full_mcts import FullMCTS
 import pandas as pd
 
 # Hyperparameters
-test_episodes = 100  # Number of test games
-model_path = "jass_scrofa_v1.pth"  # Path to the trained model
+test_episodes = 10  # Number of test games
+model_path = "jass_scrofa_v2.pth"  # Path to the trained model
 csv_test_file = "jass_test_metrics.csv"  # File to log test metrics
 
 # Load trained model
@@ -24,8 +25,8 @@ model = load_model(JassNet, filepath=model_path)
 test_arena = Arena(nr_games_to_play=test_episodes, cheating_mode=False)
 
 # Create RLAgent for testing (imperfect info)
-test_agent = RLAgent(model, epsilon=0.0)  # Fully exploit during testing
-test_arena.set_players(test_agent, RandomAgent(), test_agent, FullHeuristicTableView())
+test_agent = RLAgent(model, epsilon=0.0, epsilon_decay=0, min_epsilon=0)  # Fully exploit during testing
+test_arena.set_players(test_agent, FullMCTS(), test_agent, FullMCTS())
 
 # Initialize or load test metrics
 if os.path.exists(csv_test_file):

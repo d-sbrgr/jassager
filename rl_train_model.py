@@ -3,20 +3,32 @@ import os
 import torch
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+
 from bots.rl_bots.util.utils import save_model, load_model
 from jass.arena.arena import Arena
 from bots.rl_bots.util.jassnet import JassNet
-from bots.cheating.cheating_agents import RLAgentCheating, HeuristicAgentCheating, RandomAgentCheating
+from bots.rl_bots.util.jassnet2 import JassNet2
+from bots.rl_bots.rl_agent_cheating import RLAgentCheating
+from bots.rl_bots.util.replay_buffer import ReplayBuffer
+from bots.random_bot.full_random_cheating import RandomAgentCheating
+from bots.heuristic_bots.full_heuristic_v2_cheating import FullHeuristicTableViewCheating
 
 # Hyperparameters
-learning_rate = 0.001
-gamma = 0.95
-batch_size = 32
-episodes = 2000
-training_epochs = 20
+learning_rate = 0.0001
+gamma = 0.80
+batch_size = 64
+episodes = 5000
+training_epochs = 50
 max_buffer_size = 50000
-model_path = "jass_scrofa_v1.pth"
-csv_file = "jass_scrofa_v1_data.csv"
+model_path = "jass_scrofa_v6.pth"
+csv_file = "jass_scrofaV5_vs_Mix_v2_data.csv"
+
+# Initialize ReplayBuffer
+replay_buffer = ReplayBuffer(capacity=max_buffer_size)
+
+# Debug flag
+debug = False
 
 # Load or initialize model
 if os.path.exists(model_path):
@@ -24,14 +36,17 @@ if os.path.exists(model_path):
     model = load_model(JassNet, filepath=model_path)
 else:
     print("No pretrained model found. Initializing a new model.")
-    model = JassNet(input_dim=481, action_dim=36)
+    model = JassNet2(input_dim=629, action_dim=36)
 
 # Initialize agent and optimizer
 agent = RLAgentCheating(model)
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.RMSprop(model.parameters(), lr=learning_rate)
 
 # Initialize Arena
 arena = Arena(nr_games_to_play=episodes, cheating_mode=True)
+
+# Ensure my_team is an instance of RLAgentCheating
+my_team = agent
 
 # Load or initialize CSV
 if os.path.exists(csv_file):
@@ -39,11 +54,11 @@ if os.path.exists(csv_file):
 else:
     df = pd.DataFrame(columns=["episode", "team_points", "opponent_points", "win_rate", "avg_reward", "policy_loss", "value_loss", "total_loss"])
 
-# Replay buffer
-replay_buffer = []
-
+# Define a function for sampling batches
 def sample_batch(buffer, batch_size):
-    batch = random.sample(buffer, min(len(buffer), batch_size))
+    batch = buffer.sample(batch_size)
+    if len(batch) == 0:  # Handle case where buffer has fewer samples than batch_size
+        return None
     states, actions, rewards, next_states, dones = zip(*batch)
     return (
         torch.tensor(np.array(states), dtype=torch.float32),
@@ -57,49 +72,59 @@ def sample_batch(buffer, batch_size):
 total_wins = 0
 
 # Training loop
-for episode in range(episodes):
+for episode in tqdm(range(episodes), desc="Episodes"):
     print(f"Playing game {episode + 1}/{episodes}...")
 
-    # Reset epsilon periodically
-    if episode % 50 == 0 and episode != 0:
-        agent.epsilon = 0.5  # Reset exploration
-        print(f"Epsilon reset at episode {episode} to {agent.epsilon:.2f}")
+    # Reset agent state before each game
+    agent.reset()
 
-    arena.set_players(agent, agent, agent, agent)  # Self-play
+    # Decide on opponent strategy
+    if (episode + 1) % 10 == 0:
+        # Every 10th game, use self-play
+        opponent_team = RLAgentCheating
+        print("Using self-play for this game.")
+    elif episode < 2500:
+        opponent_team = RandomAgentCheating
+    else:
+        opponent_team = RandomAgentCheating if np.random.rand() < 0.5 else FullHeuristicTableViewCheating
 
-    # # Set opponents
-    # if episode % 3 == 0:
-    #     arena.set_players(agent, agent, agent, agent)  # Self-play
-    # else:
-    #     opponent = HeuristicAgentCheating() if episode % 5 == 0 else RandomAgentCheating()
-    #     arena.set_players(agent, opponent, agent, opponent)
+    # Set players in the arena
+    if (episode + 1) % 10 == 0:
+        # Self-play: All players are RL agents
+        arena.set_players(my_team, my_team, my_team, my_team)
+    else:
+        # Regular games: Mix of RL agent and opponents
+        arena.set_players(my_team, opponent_team(), my_team, opponent_team())
 
-    # Play a game
+    # Play the game
     try:
         arena.play_game(dealer=random.randint(0, 3))
+
+        # Finalize the game to update terminal rewards
+        agent.finalize_game(arena.get_observation())
+
+        # Collect intermediate rewards and add to replay buffer
+        for rl_agent in [arena.north, arena.south, arena.east, arena.west]:
+            if isinstance(rl_agent, RLAgentCheating):
+                for (state, action, reward, next_state, done) in rl_agent.experience_buffer:
+                    replay_buffer.push((state, action, reward, next_state, done))
+                rl_agent.experience_buffer.clear()
+
     except Exception as e:
         print(f"Error during game execution: {e}")
         continue
 
-    # Collect experiences and clear agent buffers
-    for rl_agent in [arena.north, arena.south, arena.east, arena.west]:
-        if isinstance(rl_agent, RLAgentCheating):
-            replay_buffer.extend(rl_agent.experience_buffer)
-            rl_agent.experience_buffer.clear()
-
-    # Cap replay buffer size
-    if len(replay_buffer) > max_buffer_size:
-        replay_buffer = replay_buffer[-max_buffer_size:]
-
-    # Train the model
+    # Train the model if enough samples in the buffer
     if len(replay_buffer) >= batch_size:
         dynamic_epochs = min(training_epochs, len(replay_buffer) // batch_size)
         for _ in range(dynamic_epochs):
-            states, actions, rewards, next_states, dones = sample_batch(replay_buffer, batch_size)
+            batch = sample_batch(replay_buffer, batch_size)
+            if batch is None:
+                continue  # Skip if not enough samples
+            states, actions, rewards, next_states, dones = batch
 
             # Forward pass
             policy, values = model(states)
-            policy_values = policy.gather(1, actions.unsqueeze(1)).squeeze()
 
             # Compute target values
             with torch.no_grad():
@@ -108,7 +133,7 @@ for episode in range(episodes):
 
             # Compute losses
             value_loss = torch.nn.functional.mse_loss(values.squeeze(), target_values)
-            policy_loss = -torch.mean(policy_values)
+            policy_loss = -torch.mean(policy.gather(1, actions.unsqueeze(1)).squeeze())
             total_loss = value_loss + 0.5 * policy_loss
 
             # Optimize
@@ -123,25 +148,21 @@ for episode in range(episodes):
     total_wins += win
     winrate = (total_wins / (episode + 1)) * 100
 
-    avg_reward = sum([transition[2] for transition in replay_buffer]) / len(replay_buffer) if replay_buffer else 0
+    # Calculate average reward from replay buffer
+    rewards = [transition[2] for transition in replay_buffer.buffer]
+    avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
 
     new_row = {
         "episode": episode + 1,
         "team_points": team_points,
         "opponent_points": opponent_points,
         "win_rate": winrate,
-        "win": win,
         "avg_reward": avg_reward,
         "policy_loss": policy_loss.item() if 'policy_loss' in locals() else None,
         "value_loss": value_loss.item() if 'value_loss' in locals() else None,
         "total_loss": total_loss.item() if 'total_loss' in locals() else None,
     }
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-
-    # # Save checkpoint
-    # if episode % 10 == 0:
-    #     save_model(model, filepath=f"trained_rl_model_checkpoint_{episode}.pth")
-    #     print(f"Checkpoint saved at episode {episode}")
 
 # Save final model and metrics
 save_model(model, filepath=model_path)
