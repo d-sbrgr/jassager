@@ -7,7 +7,7 @@ from bots.mcts_bots.full_mcts_rl_master import FullMCTS
 
 # Hyperparameters
 num_games = 20  # Number of games to simulate
-output_file = "full_mcts_experience.csv"  # File to save experience data
+output_file = "jass_data/rl_training_data/full_mcts_experience.csv"  # File to save experience data
 
 # Initialize Arena and FullMCTS agent
 arena = Arena(nr_games_to_play=num_games, cheating_mode=False)

@@ -17,7 +17,7 @@ from bots.rl_bots.util.utils import load_model
 np.random.seed(0xb48a)
 
 # Load the trained model
-model = load_model(JassNet, filepath="jass_scrofa_v5.pth")
+model = load_model(JassNet, filepath="models/rl_models/jass_scrofa_v5.pth")
 
 # Create the RL agent with the loaded model
 rl_agent = RLAgent(model)

@@ -22,7 +22,7 @@ batch_size = 32
 episodes = 2000
 training_epochs = 50
 max_buffer_size = 50000
-model_path = "jass2_scrofa_v1.pth"
+model_path = "models/rl_models/jass2_scrofa_v1.pth"
 csv_file = "jass_data/rl_training_data/jass2_scrofaV1_vs_Mix_v1_data.csv"
 
 # Initialize ReplayBuffer
