@@ -8,99 +8,125 @@ import numpy as np
 # Initialize RuleSchieber
 rule = RuleSchieber()
 
-# Debug flag
-debug = False
+# DEBUG flag
+DEBUG = True
+
+# Constants for reward values
+INVALID_TRUMP_SELECTION_PENALTY = -1.0
+TRUMP_SELECTION_REWARD = 0.5
+WEAK_TRUMP_SELECTION_PENALTY = -0.2
+TRICK_REWARD = 0.5
+TRICK_PENALTY = -0.5
+GOOD_CARD_REWARD = 0.2
+BAD_CARD_PENALTY = -0.2
+INVALID_CARD_PENALTY = -0.2
+VALID_CARD_REWARD = 0.1
+BOCK_CARD_REWARD = 0.5
+WASTING_CARD_PENALTY = -0.1
+SPECIAL_SUIT_REWARD = 0.3
+POINT_LOSS_PENALTY = -0.3
 
 
-def calculate_rewards_state(state: GameState, immediate=False, action=None) -> float:
+def calculate_rewards_state(state, immediate=False, action=None):
     """
-    Calculate rewards based on the current GameState.
+    Calculate rewards for the current game state.
 
-    Args:
-        state (GameState): The current game state.
-        immediate (bool): Flag for intermediate rewards.
-        action (int): The action taken (for trump rewards or card play).
+    Parameters:
+    - state: The current game state.
+    - immediate: Whether to calculate immediate rewards.
+    - action: The action being evaluated.
 
     Returns:
-        float: The calculated reward.
+    - The calculated reward value.
     """
     reward = 0.0
 
-    if state.trump == -1:  # Trump selection phase
-        reward += calculate_trump_rewards(state.hands[state.player], action)
+    try:
+        if state.trump == -1:
+            reward += calculate_trump_rewards(state.hands[state.player], action, state)
 
-    elif immediate:
-        if state.nr_cards_in_trick == 4:  # Trick completed
-            reward += calculate_trick_rewards(state)
-        elif action is not None:  # Card play phase
-            reward += calculate_card_play_rewards(state, action)
+        # Calculate rewards for intermediate steps
+        elif immediate:
+            # action played
+            if action is not None:
+                reward += calculate_card_play_rewards(state, action)
+        # Terminal rewards
+        if state.nr_played_cards == 36:
+            reward += calculate_terminal_rewards(state)
+    except Exception as e:
+        if DEBUG:
+            print(f"Error during reward calculation: {e}")
+            print(f"state: {state}, action: {action}")
+        raise e
 
-    if state.nr_played_cards == 36:  # Game completed
-        reward += calculate_terminal_rewards(state)
-
+    if DEBUG:
+        print(f"Final reward: {reward}, immediate={immediate}, action={action}")
     return reward
 
 
-def calculate_rewards_obs(obs: GameObservation, immediate=False, action=None) -> float:
+def calculate_trump_rewards(hand: np.ndarray, action: int, state_or_obs) -> float:
     """
-    Calculate rewards based on the current GameObservation.
-
-    Args:
-        obs (GameObservation): The current game observation.
-        immediate (bool): Flag for intermediate rewards.
-        action (int): The action taken (for trump rewards or card play).
-
-    Returns:
-        float: The calculated reward.
-    """
-    reward = 0.0
-
-    if obs.trump == -1:  # Trump selection phase
-        reward += calculate_trump_rewards(obs.hand, action)
-
-    elif immediate:
-        if obs.nr_cards_in_trick == 4:  # Trick completed
-            reward += calculate_trick_rewards(obs)
-        elif action is not None:  # Card play phase
-            reward += calculate_card_play_rewards(obs, action)
-
-    if obs.nr_played_cards == 36:  # Game completed
-        reward += calculate_terminal_rewards(obs)
-
-    return reward
-
-
-def calculate_trump_rewards(hand: np.ndarray, action: int) -> float:
-    """
-    Calculate rewards for trump selection with teamwork considerations.
+    Calculate rewards for trump selection with teamwork considerations, including PUSH logic
+    and rewards for pushing when trump selection score is very low.
 
     Args:
         hand (np.ndarray): One-hot encoded hand of the player.
         action (int): The selected trump action.
+        state_or_obs: GameState or GameObservation for determining forehand.
 
     Returns:
         float: The calculated trump reward.
     """
-    if action not in [DIAMONDS, HEARTS, SPADES, CLUBS, OBE_ABE, UNE_UFE]:
-        return -1.0  # Penalty for invalid trump selection
+    if action not in [DIAMONDS, HEARTS, SPADES, CLUBS, OBE_ABE, UNE_UFE, PUSH]:
+        return INVALID_TRUMP_SELECTION_PENALTY  # Penalty for invalid trump selection
 
-    # Reward for maximizing "Puur" cards in the selected trump suit
-    trump_puur_bonus = have_puur_with_four(hand)[action] * 0.5
+    # Calculate trump scores for comparison
+    trump_scores = [get_trump_selection_score(hand, trump) for trump in
+                    [DIAMONDS, HEARTS, SPADES, CLUBS, OBE_ABE, UNE_UFE]]
+    min_score = min(trump_scores)
+    max_score = max(trump_scores)
+
+    # Special handling for PUSH
+    if action == PUSH:
+        if state_or_obs.forehand == 0:
+            return INVALID_TRUMP_SELECTION_PENALTY  # Penalty if PUSH was already used
+
+        if max_score < 68:  # Threshold for mediocre score
+            return TRUMP_SELECTION_REWARD  # Reward for pushing with a low score
+
+        if max_score > 80:
+            return INVALID_TRUMP_SELECTION_PENALTY  # Penalty for selecting PUSH with a high score
+
+    # Encourage valid trump selection
+    trump_puur_bonus = 0
+    if action in [DIAMONDS, HEARTS, SPADES, CLUBS]:
+        # Check if the player has a jack and at least 3 additional cards in the same suit
+        puurs = have_puur(hand)
+        colors = count_colors(hand)
+        if puurs[action] > 0 and colors[action] >= 4:
+            trump_puur_bonus += TRUMP_SELECTION_REWARD  # Bonus reward for selecting a strong trump
+        else:
+            trump_puur_bonus += WEAK_TRUMP_SELECTION_PENALTY  # Slight penalty for weak trump selection
 
     # Reward for choosing a trump that maximizes utility
     trump_selection_score = get_trump_selection_score(hand, action)
-    trump_scores = [get_trump_selection_score(hand, trump) for trump in [DIAMONDS, HEARTS, SPADES, CLUBS, OBE_ABE, UNE_UFE]]
-    max_score, min_score = max(trump_scores), min(trump_scores)
 
-    # Reward for picking the trump with the highest utility score
-    trump_score_bonus = 0.5 if trump_selection_score == max_score else -0.5 if trump_selection_score == min_score else 0.1
+    if trump_selection_score == max_score:
+        trump_score_bonus = TRUMP_SELECTION_REWARD
+    elif trump_selection_score == min_score:
+        trump_score_bonus = WEAK_TRUMP_SELECTION_PENALTY
+    else:
+        normalized_score = (trump_selection_score - (max_score + min_score) / 2) / (
+                max_score - min_score)
+        trump_score_bonus = normalized_score / 2
 
     # Combine teamwork and utility rewards
-    trump_reward = 0.1 + trump_puur_bonus + trump_score_bonus
+    trump_reward = trump_puur_bonus + trump_score_bonus
 
-    if debug:
+    if DEBUG:
         print(f"Trump selection: {action}, Puur bonus: {trump_puur_bonus}, "
-              f"Score bonus: {trump_score_bonus}, Total trump reward: {trump_reward}")
+              f"Score bonus: {trump_score_bonus}, Total trump reward: {trump_reward}, "
+              f"Min trump score: {min_score}, Max trump score: {max_score}")
 
     return trump_reward
 
@@ -125,16 +151,26 @@ def calculate_card_play_rewards(state_or_obs, action: int) -> float:
 
     # Reward for playing a valid card
     if valid_moves[action]:
-        reward += 0.1
+        reward += VALID_CARD_REWARD
 
         # Reward for playing a Bock card
-        hand = state_or_obs.hands[state_or_obs.player] if isinstance(state_or_obs, GameState) else state_or_obs.hand
+        hand = state_or_obs.hands[state_or_obs.player] if isinstance(state_or_obs,
+                                                                     GameState) else state_or_obs.hand
         tricks = state_or_obs.tricks
         trump = state_or_obs.trump
-        reward += calculate_bock_rewards(hand, action, tricks, trump) # See function for reward
+        reward += calculate_bock_rewards(hand, action, tricks, trump)  # See function for reward
 
         # Bonus for winning the trick with the card
-        if state_or_obs.nr_cards_in_trick == 4:
+        if state_or_obs.nr_cards_in_trick == 3:
+            # Simulate adding the agent's action to complete the trick
+            simulated_trick = state_or_obs.current_trick.copy()
+            simulated_trick[state_or_obs.nr_cards_in_trick] = action
+
+            # Temporarily calculate the reward for the completed trick
+            reward += calculate_trick_rewards(state_or_obs, simulated_trick)
+            if DEBUG: print(f"Trickwinning reward?: {reward}")
+        elif state_or_obs.nr_cards_in_trick == 4:
+            # Directly calculate trick rewards when the trick is already full
             reward += calculate_trick_rewards(state_or_obs)
 
         # Add penalty for wasting valuable cards
@@ -148,25 +184,33 @@ def calculate_card_play_rewards(state_or_obs, action: int) -> float:
 
     else:
         # Penalty for invalid card
-        reward -= 0.2
+        reward += INVALID_CARD_PENALTY
 
     return reward
 
 
-
-def calculate_trick_rewards(state_or_obs) -> float:
+def calculate_trick_rewards(state_or_obs, simulated_trick=None) -> float:
     """
     Calculate rewards for winning or losing a trick.
 
     Args:
         state_or_obs: GameState or GameObservation.
+        simulated_trick (np.ndarray, optional): Simulated trick to include agent's action.
 
     Returns:
         float: The calculated trick reward.
     """
-    winner = state_or_obs.trick_winner[state_or_obs.nr_tricks - 1]
-    player = state_or_obs.player if isinstance(state_or_obs, GameObservation) else state_or_obs.player
-    return 0.5 if winner == player else -0.5
+    if simulated_trick is not None:
+        trick = simulated_trick  # Use the simulated trick
+    else:
+        trick = state_or_obs.current_trick
+
+    winner = rule.calc_winner(trick, state_or_obs.trick_first_player[state_or_obs.nr_tricks],
+                              state_or_obs.trump)
+    player = state_or_obs.player if isinstance(state_or_obs,
+                                               GameObservation) else state_or_obs.player
+    if DEBUG: print(f"Trickwinning reward?: {winner}")
+    return TRICK_REWARD if winner == player else TRICK_PENALTY
 
 
 def calculate_terminal_rewards(state_or_obs) -> float:
@@ -183,30 +227,34 @@ def calculate_terminal_rewards(state_or_obs) -> float:
     opponent_points = state_or_obs.points[1]
     reward = 0.0
 
-    # Base rewards for winning or losing
+    max_points = 157
+
+    # Positive reward for winning, negative for losing
     if team_points > opponent_points:
-        reward += 1 * (team_points / 100)
+        reward += (2 + ((team_points - opponent_points) / 100))
     elif team_points < opponent_points:
-        reward -= 1
+        reward -= (2 + ((opponent_points - team_points) / 100))
 
     # Baseline reward/penalty based on trump chooser
     trump_chooser = get_trump_chooser(state_or_obs)
     if trump_chooser in [1, 3]:  # Opponent chose trump
         if team_points < 50:
-            reward -= 1.0  # Penalty for underperformance
+            reward -= 0.5  # Penalty for underperformance
         elif team_points > 50:
-            reward += 1.0  # Reward for outperforming
+            reward += 0.5  # Reward for outperforming
     elif trump_chooser in [0, 2]:  # Agent or teammate chose trump
         if team_points < 100:
-            reward -= 1.0  # Penalty for underperformance
+            reward -= 0.5  # Penalty for underperformance
         elif team_points > 100:
-            reward += 1.0  # Reward for outperforming
+            reward += 0.5  # Reward for outperforming
 
-    if debug:
-        print(f"Terminal reward: {reward}, Team points: {team_points}, Opponent points: {opponent_points}, "
-              f"Trump chooser: {trump_chooser}")
+    if DEBUG:
+        print(
+            f"Terminal reward: {reward}, Team points: {team_points}, Opponent points: {opponent_points}, "
+            f"Trump chooser: {trump_chooser}")
 
     return reward
+
 
 def get_trump_chooser(state_or_obs) -> int:
     """
@@ -227,7 +275,6 @@ def get_trump_chooser(state_or_obs) -> int:
         return partner_player[next_player[dealer]]
     return -1
 
-from bots.rl_bots.util.utils import get_bock_cards
 
 def calculate_bock_rewards(hand, played_card, tricks, trump) -> float:
     """
@@ -242,37 +289,56 @@ def calculate_bock_rewards(hand, played_card, tricks, trump) -> float:
     Returns:
         float: The calculated Bock reward.
     """
-    bock_cards = get_bock_cards(hand, tricks)
+    bock_cards = get_bock_cards(hand, tricks, trump)
     if played_card in bock_cards:
-        return 0.5  # Reward for playing a Bock card
+        return BOCK_CARD_REWARD  # Reward for playing a Bock card
     return 0.0
 
-def calculate_avoid_wasting_card_reward(state_or_obs, action: int) -> float:
-    """
-    Penalize the agent for wasting high-value cards unnecessarily.
 
-    Args:
-        state_or_obs: GameState or GameObservation.
-        action (int): The card played by the agent.
+def calculate_avoid_wasting_card_reward(state_or_obs, action):
+    """
+    Calculate a reward to avoid wasting high-value cards unnecessarily.
+
+    Parameters:
+    - state_or_obs: The current game state or observation.
+    - action: The card index (0-35) being played.
 
     Returns:
-        float: Reward (or penalty) for avoiding wasting valuable cards.
+    - A reward value (e.g., float).
     """
-    # Determine the current best card in the trick
+    # Validate current_trick
+    for card in state_or_obs.current_trick:
+        assert card == -1 or 0 <= card < 36, f"Invalid card in current_trick: {card}"
+
+    # Get the current best card in the trick
     current_best_card = get_current_best(state_or_obs.trump, state_or_obs.current_trick)
 
-    # If the agent's card can't beat the current best card, check its value
-    if action != current_best_card and not can_card_win(action, current_best_card, state_or_obs.trump):
-        card_value = get_card_values([action], state_or_obs.trump)[0]
+    # Calculate reward logic here (example placeholder)
+    reward = 0.0
+    if can_hand_win(state_or_obs.hands[state_or_obs.player], current_best_card, state_or_obs.trump):
+        if current_best_card != -1:
+            if is_same_trump_suit(action, current_best_card, state_or_obs.trump):
+                if action > current_best_card:
+                    reward += GOOD_CARD_REWARD  # reward playing higher cards strategically
+                else:
+                    reward += BAD_CARD_PENALTY  # Penalize wasting cards unnecessarily
+            elif color_of_card[action] == color_of_card[current_best_card] and color_of_card[
+                action] != state_or_obs.trump:
+                if action > current_best_card:
+                    reward += GOOD_CARD_REWARD  # reward playing higher cards strategically
+                else:
+                    reward += BAD_CARD_PENALTY  # Penalize wasting cards unnecessarily
+    else:
+        if is_lowest_card_available(state_or_obs, action):
+            reward += GOOD_CARD_REWARD  # Reward for playing a low-value card
+        elif action in get_bock_cards(state_or_obs.hands[state_or_obs.player], state_or_obs.tricks,
+                                      state_or_obs.trump) or get_card_values([action], state_or_obs.trump)[0] > 3:
+            reward += BAD_CARD_PENALTY  # Penalize for playing a high-value or Bock card
 
-        # Penalize based on card value (higher penalty for higher-value cards)
-        if card_value >= 10:  # High-value cards (e.g., Ace, King, 10)
-            return -0.5
-        elif card_value >= 5:  # Medium-value cards (e.g., 9, Jack)
-            return -0.2
+    if DEBUG:
+        print(f"action: {action}, current_best_card: {current_best_card}, reward: {reward}")
 
-    # No penalty if the card can win the trick or is a low-value card
-    return 0.0
+    return reward
 
 
 def can_card_win(card: int, current_best_card: int, trump: int) -> bool:
@@ -291,12 +357,19 @@ def can_card_win(card: int, current_best_card: int, trump: int) -> bool:
         return True  # Trump beats non-trump
     if color_of_card[card] == color_of_card[current_best_card]:
         # Compare ranks within the same suit
-        return card < current_best_card
+        if trump == UNE_UFE:
+            return card > current_best_card
+        elif color_of_card[card] != trump:
+            return card < current_best_card
+        else:
+            return higher_trump_card[current_best_card, card] == 1
     return False
+
 
 def calculate_special_suit_card_reward(state_or_obs, action: int) -> float:
     """
-    Reward the agent for playing the right card in Obenabe or Uneufe.
+    Reward the agent for playing the overall highest (Obenabe) or lowest (Uneufe) card of the color,
+    not just the highest/lowest in their hand.
 
     Args:
         state_or_obs: GameState or GameObservation.
@@ -306,18 +379,39 @@ def calculate_special_suit_card_reward(state_or_obs, action: int) -> float:
         float: Reward for aligning with Obenabe or Uneufe rules.
     """
     trump = state_or_obs.trump
+    current_trick = state_or_obs.current_trick
+    hand = state_or_obs.hands[state_or_obs.player] if isinstance(state_or_obs,
+                                                                 GameState) else state_or_obs.hand
 
-    # Check if the game is in Obenabe or Uneufe mode
+    # Extract color of the played card
+    action_color = color_of_card[action]
+
+    # Combine played cards and cards in the current trick
+    played_cards = state_or_obs.tricks.flatten()
+    all_played_cards = [card for card in played_cards if card != -1] + list(
+        current_trick[current_trick != -1])
+
+    # Identify all cards of the played card's color
+    all_color_cards = [card for card in range(action_color * 9, (action_color + 1) * 9)]
+
+    # Determine remaining cards in the color
+    remaining_color_cards = list(set(all_color_cards) - set(all_played_cards))
+
     if trump == OBE_ABE:  # Obenabe: highest card wins
-        # Reward for playing the highest available card
-        if is_highest_card_available(state_or_obs, action):
-            return 0.3
-    elif trump == UNE_UFE:  # Uneufe: lowest card wins
-        # Reward for playing the lowest available card
-        if is_lowest_card_available(state_or_obs, action):
-            return 0.3
+        highest_card = min(remaining_color_cards)  # Lowest index represents highest rank
+        if action == highest_card:
+            return GOOD_CARD_REWARD  # Reward for playing the overall highest card
+        else:
+            return BOCK_CARD_REWARD  # Penalty for not playing the overall highest card
 
-    return 0.0
+    elif trump == UNE_UFE:  # Uneufe: lowest card wins
+        lowest_card = max(remaining_color_cards)  # Highest index represents lowest rank
+        if action == lowest_card:
+            return GOOD_CARD_REWARD  # Reward for playing the overall lowest card
+        else:
+            return BOCK_CARD_REWARD  # Penalty for not playing the overall lowest card
+
+    return 0.0  # No reward outside of special suits
 
 
 def is_highest_card_available(state_or_obs, action: int) -> bool:
@@ -331,8 +425,9 @@ def is_highest_card_available(state_or_obs, action: int) -> bool:
     Returns:
         bool: True if the card is the highest available, False otherwise.
     """
-    hand = state_or_obs.hands[state_or_obs.player] if isinstance(state_or_obs, GameState) else state_or_obs.hand
-    available_cards = np.flatnonzero(hand)
+    hand = state_or_obs.hands[state_or_obs.player] if isinstance(state_or_obs,
+                                                                 GameState) else state_or_obs.hand
+    available_cards = np.flatnonzero(hand) % 9
     return action == max(available_cards)
 
 
@@ -347,9 +442,11 @@ def is_lowest_card_available(state_or_obs, action: int) -> bool:
     Returns:
         bool: True if the card is the lowest available, False otherwise.
     """
-    hand = state_or_obs.hands[state_or_obs.player] if isinstance(state_or_obs, GameState) else state_or_obs.hand
-    available_cards = np.flatnonzero(hand)
+    hand = state_or_obs.hands[state_or_obs.player] if isinstance(state_or_obs,
+                                                                 GameState) else state_or_obs.hand
+    available_cards = np.flatnonzero(hand) % 9
     return action == min(available_cards)
+
 
 def calculate_avoid_point_loss_reward(state_or_obs, action: int) -> float:
     """
@@ -369,8 +466,27 @@ def calculate_avoid_point_loss_reward(state_or_obs, action: int) -> float:
     card_points = get_card_values([action], trump)[0]
 
     # Check if the card gives points unnecessarily
-    if action > current_best_card and card_points > 0:
-        return -0.3  # Penalty for unnecessarily losing points
+    if action != current_best_card and card_points > 3:
+        return BAD_CARD_PENALTY  # Penalty for unnecessarily losing points
 
     return 0.0
+
+
+def can_hand_win(hand: np.ndarray, current_best_card: int, trump: int) -> bool:
+    """
+    Determine if the agent can win with the current cards in hand against the current_best_card.
+
+    Args:
+        hand (np.ndarray): The current hand of the player.
+        current_best_card (int): The current best card in the trick.
+        trump (int): The trump suit.
+
+    Returns:
+        bool: True if the agent can win with any card in hand, False otherwise.
+    """
+    for card in np.flatnonzero(hand):
+        if can_card_win(card, current_best_card, trump):
+            return True
+    return False
+
 
