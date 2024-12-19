@@ -13,8 +13,8 @@ import pandas as pd
 
 # Hyperparameters
 test_episodes = 10  # Number of test games
-model_path = "models/rl_models/jass_scrofa_v2.pth"  # Path to the trained model
-csv_test_file = "jass_data/rl_training_data/jass_test_metrics.csv"  # File to log test metrics
+model_path = "jass_scrofa_v2.pth"  # Path to the trained model
+csv_test_file = "jass_test_metrics.csv"  # File to log test metrics
 
 # Load trained model
 if not os.path.exists(model_path):

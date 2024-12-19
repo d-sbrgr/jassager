@@ -1,9 +1,6 @@
 import numpy as np
 from jass.game.game_observation import GameObservation
 
-# Debug flag for validation purposes
-DEBUG = False
-
 def encode_game_observation(obs: GameObservation) -> np.ndarray:
     """
     Encodes the GameObservation object into a fixed-size input vector for the neural network.
@@ -14,84 +11,41 @@ def encode_game_observation(obs: GameObservation) -> np.ndarray:
     Returns:
     - np.ndarray: Encoded state vector.
     """
+    # Adjusted vector size to match GameState encoding (629)
     vector_size = (4 * 36) + (4 * 36) + 6 + 4 + 2 + (9 * 36) + 4 + 1  # Total = 629
     encoded_state = np.zeros(vector_size, dtype=np.float32)
 
-    # Validate the integrity of the GameObservation
-    validate_game_observation(obs)
-
-    # Modular offset tracking
     offset = 0
-
-    # 1. Encode player's hand
     offset = encode_hand(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding hand: {offset}")
-
-    # 2. Encode placeholders for other players' hands
-    offset = encode_empty_hands(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding empty hands: {offset}")
-
-    # 3. Encode the current trick
+    offset = encode_empty_hands(encoded_state, obs, offset)  # Placeholder for other players' hands
     offset = encode_current_trick(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding current trick: {offset}")
-
-    # 4. Encode trump
     offset = encode_trump(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding trump: {offset}")
-
-    # 5. Encode player position
     offset = encode_player_position(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding player position: {offset}")
-
-    # 6. Encode scores
     offset = encode_scores(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding scores: {offset}")
-
-    # 7. Encode trick history
     offset = encode_trick_history(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding trick history: {offset}")
-
-    # 8. Encode trick counts
     offset = encode_trick_counts(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding trick counts: {offset}")
-
-    # 9. Encode additional features
     offset = encode_additional_features(encoded_state, obs, offset)
-    if DEBUG: print(f"Offset after encoding additional features: {offset}")
 
-    # Assert final offset consistency
+    # Validate final offset
     assert offset == vector_size, f"Encoded vector size mismatch: expected {vector_size}, got {offset}"
+
     return encoded_state
-
-
-import numpy as np
-
-def validate_game_observation(obs: GameObservation):
-    """
-    Validate the integrity of the GameObservation before encoding.
-    """
-    assert len(obs.hand) <= 36, f"Invalid hand length: {len(obs.hand)}"
-    assert isinstance(obs.current_trick, (list, np.ndarray)), "Current trick must be a list or numpy array"
-    assert 0 <= obs.player < 4, f"Invalid player index: {obs.player}"
-    assert 0 <= obs.trump < 6 or obs.trump == -1, f"Invalid trump value: {obs.trump}"
-
 
 
 def encode_hand(encoded_state, obs, offset):
     """
-    Encode the player's hand cards (36 slots).
+    Encode the hand cards for the observing player.
     """
-    for card in obs.hand:
-        if 0 <= card < 36:
-            encoded_state[offset + card] = 1
+    encoded_state[offset:offset + 36] = obs.hand
     offset += 36
     return offset
 
 
 def encode_empty_hands(encoded_state, obs, offset):
     """
-    Placeholder for the other players' hands (3 * 36 slots).
+    Placeholder for the other players' hands.
     """
+    # Fill with zeros since the agent doesn't have access to other hands
     encoded_state[offset:offset + (3 * 36)] = 0
     offset += (3 * 36)
     return offset
@@ -99,28 +53,28 @@ def encode_empty_hands(encoded_state, obs, offset):
 
 def encode_current_trick(encoded_state, obs, offset):
     """
-    Encode the current trick (36 cards per position).
+    Encode the current trick (36 cards per position in the trick).
     """
-    for card in obs.current_trick:
-        if 0 <= card < 36:
-            encoded_state[offset + card] = 1
-        offset += 36
+    for i, card in enumerate(obs.current_trick):
+        if card != -1:
+            encoded_state[offset + card] = 1  # Mark the card played in this position
+        offset += 36  # Move to the next position in the trick
     return offset
 
 
 def encode_trump(encoded_state, obs, offset):
     """
-    Encode the trump suit (6 slots).
+    Encode the trump suit (6 possible values: clubs, spades, hearts, diamonds, UNE_UFE, OBE_ABE).
     """
     if obs.trump != -1:
-        encoded_state[offset + obs.trump] = 1
+        encoded_state[offset + obs.trump] = 1  # Mark the selected trump
     offset += 6
     return offset
 
 
 def encode_player_position(encoded_state, obs, offset):
     """
-    Encode the current player position (4 slots).
+    Encode the current player position (4 positions: 0, 1, 2, 3).
     """
     encoded_state[offset + obs.player] = 1
     offset += 4
@@ -129,33 +83,37 @@ def encode_player_position(encoded_state, obs, offset):
 
 def encode_scores(encoded_state, obs, offset):
     """
-    Encode the scores for both teams (2 slots).
+    Encode the current scores for both teams.
     """
-    encoded_state[offset:offset + 2] = obs.points / 157.0  # Normalize scores
+    # Normalize scores by the maximum possible score in a game (157)
+    encoded_state[offset:offset + 2] = obs.points / 157.0
     offset += 2
     return offset
 
 
 def encode_trick_history(encoded_state, obs, offset):
     """
-    Encode the trick history (9 * 36 slots).
+    Encode the trick history (9 tricks, 36 cards per trick).
     """
     for trick in obs.tricks:
         for card in trick:
             if card != -1:
-                encoded_state[offset + card] = 1
-        offset += 36
+                encoded_state[offset + card] = 1  # Mark the card played in this trick
+        offset += 36  # Move to the next trick
     return offset
 
 
 def encode_trick_counts(encoded_state, obs, offset):
     """
-    Encode the number of tricks won by each player (4 slots).
+    Encode the number of tricks won by each player.
     """
+    # Count the number of tricks won by each player dynamically
     nr_tricks_per_player = [0, 0, 0, 0]
     for winner in obs.trick_winner:
-        if 0 <= winner < 4:
+        if winner != -1:  # Only consider completed tricks
             nr_tricks_per_player[winner] += 1
+
+    # Normalize trick counts by the total number of tricks in a game (9)
     encoded_state[offset:offset + 4] = np.array(nr_tricks_per_player) / 9.0
     offset += 4
     return offset
@@ -163,8 +121,9 @@ def encode_trick_counts(encoded_state, obs, offset):
 
 def encode_additional_features(encoded_state, obs, offset):
     """
-    Encode additional features such as forehand indicator (1 slot).
+    Encode additional features such as forehand indicator.
     """
+    # Example: Forehand indicator (1 if the current player is forehand, else 0)
     encoded_state[offset] = 1 if obs.forehand == obs.player else 0
     offset += 1
     return offset
