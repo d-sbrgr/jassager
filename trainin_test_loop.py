@@ -1,7 +1,7 @@
 import subprocess
 
 # Number of training runs
-num_training_runs = 10
+num_training_runs = 3
 
 for i in range(num_training_runs):
     print(f"Starting training run {i + 1}/{num_training_runs}...")

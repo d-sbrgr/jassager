@@ -10,10 +10,13 @@ from jass.game.rule_schieber import RuleSchieber
 from jass.agents.agent import Agent
 from jass.agents.agent_random_schieber import AgentRandomSchieber
 from jass.arena.arena import Arena
+from jass.game.game_state import GameState
 
 from jass.game.const import *
 
 from bots.rl_bots.util.jassnet import JassNet
+
+DEBUG = False
 
 def save_model(model, filepath="rl_model.pth"):
     torch.save(model.state_dict(), filepath)
@@ -111,49 +114,93 @@ def get_trump_selection_score(cards: np.ndarray, trump: int) -> int:
     return result
 
 
-def get_better_card(card1: int, card2: int, trump: int) -> int:
+def get_better_card(card1, card2, trump):
     """
-    Return the better card based on the current trump situation
+    Determine the better card between two cards given the trump suit.
 
-    :param card1: Current best card
-    :param card2: Next card in play
-    :param trump: Current trump
-    :return: Better card
+    Args:
+        card1 (int): Index of the first card (0-35).
+        card2 (int): Index of the second card (0-35).
+        trump (int): Trump suit (0-3 for suits, or special values for OBE_ABE, UNE_UFE).
+
+    Returns:
+        int: The index of the better card, or -1 if cards are incomparable.
     """
-    if card2 == -1:
-        return card1
-    color1 = color_of_card[card1]
-    color2 = color_of_card[card2]
-    if color2 != color1:
-        if color2 == trump:
-            # If only later card is trump, later card is better
+    # Calculate card colors
+    color1 = card1 // 9
+    color2 = card2 // 9
+
+    # Compare different suits
+    if color1 != color2:
+        if color1 == trump:
+            return card1
+        elif color2 == trump:
             return card2
+        else:
+            return -1  # No direct comparison for non-trump cards of different suits
+
+    # Validate cards
+    assert 0 <= card1 < 36, f"Invalid card1: {card1}"
+    assert 0 <= card2 < 36, f"Invalid card2: {card2}"
+
+    # Relative card indices for comparison
+    card1_relative = card1 - 9 * color1
+    card2_relative = card2 - 9 * color2
+
+    # Validate relative indices
+    assert 0 <= card1_relative < 9, f"Invalid card1_relative: {card1_relative}, card1: {card1}, color1: {color1}"
+    assert 0 <= card2_relative < 9, f"Invalid card2_relative: {card2_relative}, card2: {card2}, color2: {color2}"
+
+    if DEBUG:
+        print(f"card1: {card1}, card2: {card2}, trump: {trump}, color1: {color1}, color2: {color2}")
+        print(f"card1_relative: {card1_relative}, card2_relative: {card2_relative}")
+
+    # Comparison matrix for higher trump cards
+    higher_trump_card = [
+        [True, False, False, False, False, False, False, False, False],
+        [True, True, False, False, False, False, False, False, False],
+        [True, True, True, False, False, False, False, False, False],
+        [True, True, True, True, False, False, False, False, False],
+        [True, True, True, True, True, False, False, False, False],
+        [True, True, True, True, True, True, False, False, False],
+        [True, True, True, True, True, True, True, False, False],
+        [True, True, True, True, True, True, True, True, False],
+        [True, True, True, True, True, True, True, True, True],
+    ]
+
+    # Compare cards using the matrix
+    if higher_trump_card[card1_relative][card2_relative]:
         return card1
-    # Both cards have same color
-    color = color1
-    if color == trump:
-        # If both cards are trump, better trump card wins
-        if higher_trump_card[card1 - 8 * color][card2 - 8 * color]:
-            return card2
-        return card1
-    if trump == UNE_UFE:
-        # If trump is UNE_UFE, lower card (larger constant value) wins
-        return max(card1, card2)
-    # All other scenarios are won by the higher card (smaller constant value)
-    return min(card1, card2)
+    return card2
 
 
-def get_current_best(trump: int, trick: np.ndarray) -> int:
+
+
+def get_current_best(trump, current_trick):
     """
-    Return the current best card in the trick
+    Get the best card in the current trick given the trump suit.
 
-    # TODO fix docstring
-    :return: Best card in the trick
+    Parameters:
+    - trump: The trump suit (0-3 or special values for OBE_ABE/UNE_UFE).
+    - current_trick: List of cards played in the current trick.
+
+    Returns:
+    - The index of the best card in the trick, or -1 if no cards have been played.
     """
-    best = trick[0]
-    for card in trick[1:]:
-        best = get_better_card(best, card, trump)
-    return best
+    best_card = -1
+    for card in current_trick:
+        if card == -1:
+            continue
+        if best_card == -1:
+            best_card = card
+        else:
+            best_card = get_better_card(best_card, card, trump)
+
+    if DEBUG:
+        print(f"trump: {trump}, current_trick: {current_trick}, best_card: {best_card}")
+
+    return best_card
+
 
 
 def get_remaining_trump_cards(trump: int, tricks: np.ndarray) -> list[int]:
@@ -177,9 +224,30 @@ def get_played_trump_cards(trump: int, tricks: np.ndarray) -> list[int]:
     return trumps_played
 
 
-def get_bock_cards(cards: list[int], tricks: np.ndarray) -> list[int]:
+def get_bock_cards(cards: list[int], tricks: np.ndarray, trump: int) -> list[int]:
+    """
+    Identify Bock cards in the player's hand.
+
+    Args:
+        cards (list[int]): The list of cards in the player's hand.
+        tricks (np.ndarray): The history of played tricks.
+        trump (int): The current trump suit.
+
+    Returns:
+        list[int]: The list of Bock cards.
+    """
     result = []
+
+    # Skip Bock card logic for OBE_ABE and UNE_UFE
+    if trump in [OBE_ABE, UNE_UFE]:
+        return result
+
     for card in cards:
+        # Skip trump cards
+        if color_of_card[card] == trump:
+            continue
+
+        # Logic for identifying Bock cards
         if offset_of_card[card] > 0:
             for i in range(card - 1, card - offset_of_card[card] - 1, -1):
                 if i not in tricks.flatten() and i not in cards:
@@ -215,4 +283,42 @@ def get_most_valuable_cards(cards: list[int], trump: int) -> list[int]:
     points = get_card_values(cards, trump)
     point_max = max(points)
     return [cards[i] for i in range(len(cards)) if points[i] == point_max]
+
+def is_same_trump_suit(action: int, current_best_card: int, trump: int) -> bool:
+    """
+    Check if the action is the same trump suit as the current_best_card.
+
+    Args:
+        action (int): The card to evaluate.
+        current_best_card (int): The current best card in the trick.
+        trump (int): The trump suit.
+
+    Returns:
+        bool: True if the action is the same trump suit as the current_best_card, False otherwise.
+    """
+    return color_of_card[action] == trump and color_of_card[current_best_card] == trump
+
+def validate_game_state(state: GameState):
+    """
+    Validate the integrity of the GameState before encoding.
+
+    Args:
+    - state (GameState): The game state to validate.
+    """
+    if DEBUG:
+        print(f"Validating state: player={state.player}, trump={state.trump}")
+        print(f"state.hands.shape: {state.hands.shape}")
+        print(f"state.current_trick: {state.current_trick}")
+        print(f"state.trick_winner: {state.trick_winner}")
+
+    assert state.hands.shape == (4, 36), f"Invalid hands shape: {state.hands.shape}"
+    assert state.current_trick.shape == (4,), f"Invalid current_trick shape: {state.current_trick.shape}"
+    assert state.tricks.shape == (9, 4), f"Invalid tricks shape: {state.tricks.shape}"
+    assert len(state.points) == 2, f"Invalid points length: {len(state.points)}"
+    assert 0 <= state.player < 4, f"Invalid player index: {state.player}"
+    assert all(0 <= trick < 36 or trick == -1 for trick in state.current_trick), \
+        f"Invalid values in current_trick: {state.current_trick}"
+    assert all(0 <= winner < 4 or winner == -1 for winner in state.trick_winner), \
+        f"Invalid values in trick_winner: {state.trick_winner}"
+
 

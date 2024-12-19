@@ -9,18 +9,22 @@ from jass.game.game_util import convert_one_hot_encoded_cards_to_int_encoded_lis
 
 from bots.rl_bots.util.reward_system import calculate_rewards_state
 from bots.rl_bots.util.encode_game_state import encode_game_state
+from bots.rl_bots.util.utils import validate_game_state
 
-# Debug flag
-debug = False
+# DEBUG flag
+DEBUG = False
+
+# Log flag
+log = False
 
 # immediate reward
 immediate = True
 
-if debug:
-    print(" ===== cheating_agent.py in debug mode =====")
+if DEBUG:
+    print(" ===== cheating_agent.py in DEBUG mode =====")
 
 class RLAgentCheating(AgentCheating):
-    def __init__(self, model, epsilon=1, epsilon_decay=0.99, min_epsilon=0.05):
+    def __init__(self, model, epsilon=1, epsilon_decay=0.99945, min_epsilon=0.1):
         """
         Initialize the RLAgentCheating.
 
@@ -39,8 +43,12 @@ class RLAgentCheating(AgentCheating):
         self.previous_action = None
         self._rule = RuleSchieber()
 
+        self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
+        print(f"Current epsilon: {self.epsilon}")
+
     def action_trump(self, state: GameState) -> int:
-        print(f"Debug: Calling action_trump, Trump: {state.trump}")
+        if DEBUG:
+            print(f"DEBUG: Calling action_trump, Trump: {state.trump}")
         encoded_state = encode_game_state(state)
         state_tensor = torch.tensor(encoded_state, dtype=torch.float32).unsqueeze(0)
 
@@ -54,34 +62,43 @@ class RLAgentCheating(AgentCheating):
         if np.random.rand() < self.epsilon:
             # Explore: Choose a random valid trump
             trump_action = np.random.choice(valid_trumps)
-            print(f"Exploring: Random trump action selected: {trump_action}")
+            if log:
+                print(f"Exploring: Random trump action selected: {trump_action}")
         else:
             # Exploit: Choose trump with the highest predicted probability
-            trump_action = max(valid_trumps, key=lambda t: policy[0, t].item())
+            trump_action = max(valid_trumps, key=lambda t: policy[0, t].item() if 0 <= t < 6 else float('-inf'))
+
 
         # Calculate reward for the chosen trump
         reward = calculate_rewards_state(state, immediate=True, action=trump_action)
-        print(f"Debug: Reward for selected trump {trump_action}: {reward}")
+        if DEBUG:
+            print(f"DEBUG: Reward for selected trump {trump_action}: {reward}")
 
         # Store the transition (if this is not the first action)
         if self.previous_state is not None:
             done = False  # Trump selection is never the end of the game
             transition = (self.previous_state, self.previous_action, reward, encoded_state, done)
-            print(
-                f"Storing trump transition - Action: {self.previous_action}, Reward: {reward}, "
-                f"State size: {len(self.previous_state)}, Next State size: {len(encoded_state)}"
-            )
+            if log:
+                print(
+                    f"Storing trump transition - Action: {self.previous_action}, Reward: {reward}, "
+                    f"State size: {len(self.previous_state)}, Next State size: {len(encoded_state)}"
+                )
             self.experience_buffer.append(transition)
 
         # Update previous state and action
         self.previous_state = encoded_state
         self.previous_action = trump_action
 
+        valid_trumps = [DIAMONDS, HEARTS, SPADES, CLUBS, OBE_ABE, UNE_UFE]
+        assert trump_action in valid_trumps, f"Invalid trump action {trump_action}, valid trumps: {valid_trumps}"
+        assert 0 <= trump_action < 6, f"Trump action {trump_action} is out of bounds"
+
         return trump_action
 
     def action_play_card(self, state: GameState) -> int:
-        if debug:
-            print(f"Debug: Calling action_play_card, Cards played: {state.nr_played_cards}")
+        validate_game_state(state)
+        if DEBUG:
+            print(f"DEBUG: Calling action_play_card, Cards played: {state.nr_played_cards}")
 
         encoded_state = encode_game_state(state)
         valid_moves = convert_one_hot_encoded_cards_to_int_encoded_list(
@@ -90,29 +107,25 @@ class RLAgentCheating(AgentCheating):
 
         if len(valid_moves) == 1:
             action = valid_moves[0]
-            if debug:
-                print(f"Debug: Single valid move available: {action}")
+            if DEBUG:
+                print(f"DEBUG: Single valid move available: {action}")
         else:
             state_tensor = torch.tensor(encoded_state, dtype=torch.float32).unsqueeze(0)
             if np.random.rand() < self.epsilon:
                 action = np.random.choice(valid_moves)
-                if debug:
-                    print(f"Debug: Exploration: Random action selected: {action}")
             else:
                 with torch.no_grad():
                     policy_logits, _ = self.model(state_tensor)
-                masked_logits = policy_logits.clone()
-                mask = torch.zeros_like(masked_logits)
-                mask[0, valid_moves] = 1
-                masked_logits[mask == 0] = float('-inf')
-                action_probabilities = torch.softmax(masked_logits, dim=-1).squeeze()
+                # Ensure only valid actions are considered
+                policy_logits[:, [i for i in range(36) if i not in valid_moves]] = float('-inf')
+                action_probabilities = torch.softmax(policy_logits, dim=-1).squeeze()
                 action = torch.argmax(action_probabilities).item()
-                if debug:
-                    print(f"Debug: Exploitation: Selected action {action} with probabilities {action_probabilities}")
+                if DEBUG:
+                    print(f"DEBUG: Exploitation: Selected action {action} with probabilities {action_probabilities}")
 
         # Calculate reward for the current action
         reward = calculate_rewards_state(state, immediate=True, action=action)
-        if debug:
+        if log:
             print(f"reward: {reward}, for action: {action}")
 
         # Store transition
@@ -120,11 +133,13 @@ class RLAgentCheating(AgentCheating):
             done = state.nr_played_cards == 36
             transition = (self.previous_state, self.previous_action, reward, encoded_state, done)
             self.experience_buffer.append(transition)
-            if debug:
+            if log:
                 print(f"Storing transition - Action: {self.previous_action}, Reward: {reward}, Done: {done}")
 
         self.previous_state = encoded_state
         self.previous_action = action
+
+        assert action in valid_moves, f"Invalid action chosen: {action}, valid moves: {valid_moves}"
 
         return action
 
@@ -137,15 +152,18 @@ class RLAgentCheating(AgentCheating):
         """
         # Calculate terminal reward based on the final state
         terminal_reward = calculate_rewards_state(state, immediate=False)
-        print(f"Debug: Terminal reward calculated: {terminal_reward}")
+        if DEBUG:
+            print(f"DEBUG: Terminal reward calculated: {terminal_reward}")
 
         for i, (s, a, _, next_s, _) in enumerate(self.experience_buffer):
-            done = i == len(self.experience_buffer) - 1  # Mark the last transition as done
+            done = (i == len(self.experience_buffer) - 1)  # Only the last transition is marked as done
             self.experience_buffer[i] = (s, a, terminal_reward if done else 0, next_s, done)
 
         # Decay epsilon
         self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
-        print(f"Epsilon decayed to: {self.epsilon}")
+        if log:
+            print(f"Epsilon decayed to: {self.epsilon}")
+            print(f"Final transition: Done={done}, Reward={terminal_reward}")
 
     def reset(self):
         """
@@ -153,5 +171,6 @@ class RLAgentCheating(AgentCheating):
         """
         self.previous_state = None
         self.previous_action = None
-        self.experience_buffer.clear()
-        print("Debug: Agent state reset for a new game.")
+        # self.experience_buffer.clear()
+        if DEBUG:
+            print("DEBUG: Agent state reset for a new game.")

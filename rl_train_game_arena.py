@@ -30,9 +30,9 @@ arena = Arena(nr_games_to_play=nr_of_games, cheating_mode=False)
 # Set players directly
 arena.set_players(
     rl_agent,                           # RLAgent for North
-    RandomAgent(),                         # RandomAgent for East
+    FullMCTS(),                         # RandomAgent for East
     rl_agent,                           # RLAgent for South
-    RandomAgent()                          # RandomAgent for West
+    FullMCTS()                          # RandomAgent for West
 )
 
 print("DET: AVG |    MAX   |    MIN   ||--|| ALG: AVG |    MAX   |    MIN    ||--|| CDS: ")
@@ -50,7 +50,7 @@ print(
 )
 
 # Define the CSV file path
-csv_file = "test_game_arena_jass_scrofa_vs_heuristicTrumpMCTSPlay_v1.csv"
+csv_file = "jass_data/rl_training_data/test_game_arena_jass_scrofa_vs_heuristicTrumpMCTSPlay_v1.csv"
 
 if os.path.exists(csv_file):
     df = pd.read_csv(csv_file, index_col=0)  # Load existing DataFrame
